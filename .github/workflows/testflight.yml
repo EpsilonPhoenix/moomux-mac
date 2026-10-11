@@ -30,6 +30,15 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
+      # A step in the job that already ships, not a workflow of its own, so it
+      # costs seconds rather than another runner. release.yml ran it already;
+      # this is for a hand dispatch. The archive takes only what this checked:
+      # `-onlyUsePackageVersionsFromResolvedFile` stops it resolving past the lock.
+      - name: Refuse dependencies under 72 hours old
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: Scripts/dependency_age.sh
+
       # Same stamp release.yml gives the Mac plist, so the TestFlight build and
       # the cask report one version. The build number is XC_BUILD's, unchanged.
       - name: Stamp iOS version

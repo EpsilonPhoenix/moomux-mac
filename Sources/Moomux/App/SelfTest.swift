@@ -29,6 +29,7 @@ enum SelfTest {
         ToolPath.demo()
         Layout.demo()
         AppState.demo()
+        ViewedFiles.demo()
         NewSessionForm.demo()
         ProjectForm.demo()
         Notifier.demo()

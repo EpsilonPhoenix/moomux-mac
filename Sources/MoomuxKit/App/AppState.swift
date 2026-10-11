@@ -19,6 +19,52 @@ public struct SessionDiff: Sendable {
     public var truncated: Bool
 }
 
+/// The files of one session's diff already looked at, on the phone. Marked by
+/// path *and* patch, so a file the agent edits again after you viewed it comes
+/// back unviewed — GitHub's rule, and the one that matters while an agent is
+/// still working. Memory only: a relaunch starts the review over.
+public struct ViewedFiles: Equatable, Sendable {
+    private var marks: Set<String> = []
+
+    public init() {}
+
+    // `hashValue` is per-process, which is all an in-memory mark needs, and it
+    // keeps a megabyte patch from being held twice.
+    private static func mark(_ file: FileChange) -> String {
+        "\(file.path)\u{0}\(file.patch?.hashValue ?? 0)"
+    }
+
+    /// The ids of `files` that are viewed as they stand now.
+    public func ids(in files: [FileChange]) -> Set<FileChange.ID> {
+        Set(files.filter { marks.contains(Self.mark($0)) }.map(\.id))
+    }
+
+    /// Replaces the marks with `ids`, taken at `files`' current patches. Marks
+    /// for files no longer in the diff go too.
+    public mutating func set(_ ids: Set<FileChange.ID>, in files: [FileChange]) {
+        marks = Set(files.filter { ids.contains($0.id) }.map(Self.mark))
+    }
+
+    public static func demo() {
+        func file(_ path: String, _ patch: String) -> FileChange {
+            FileChange(path: path, status: .modified, additions: 1, deletions: 0, patch: patch)
+        }
+        let a = file("a.swift", "@@ -1 +1 @@\n+x"), b = file("b.swift", "@@ -1 +1 @@\n+y")
+        var viewed = ViewedFiles()
+        assert(viewed.ids(in: [a, b]).isEmpty)
+        viewed.set(["a.swift"], in: [a, b])
+        assert(viewed.ids(in: [a, b]) == ["a.swift"])
+        // The agent edits a.swift again: it is unviewed, b is untouched.
+        let a2 = file("a.swift", "@@ -1 +1 @@\n+z")
+        assert(viewed.ids(in: [a2, b]).isEmpty)
+        // A file that left the diff and came back unchanged is still viewed —
+        // but setting from a list without it forgets it.
+        assert(viewed.ids(in: [b, a]) == ["a.swift"])
+        viewed.set([], in: [b])
+        assert(viewed.ids(in: [a, b]).isEmpty)
+    }
+}
+
 /// One-way flow, no exceptions:
 ///
 ///     MoomuxClient (unix socket) -> AppState -> Views
@@ -87,6 +133,8 @@ public final class AppState {
     /// `git diff` on the core. nil inside means "not a git repo", which is not
     /// the same as a clean worktree's empty list.
     public private(set) var diffs: [Session.ID: SessionDiff?] = [:]
+    /// What the phone's Changes screen has marked as looked at, per session.
+    public var viewedFiles: [Session.ID: ViewedFiles] = [:]
 
     public private(set) var connection: Connection = .connecting
     /// Set when the status stream drops. Without it the last states keep

@@ -356,7 +356,7 @@ IOS_SDK       = $(shell xcrun --sdk iphonesimulator --show-sdk-path)
 # phone instead of drawing — and leave the VT byte path at -Onone.
 IOS_SDKFLAGS  = -Xswiftc -sdk -Xswiftc $(IOS_SDK) -Xcc -isysroot -Xcc $(IOS_SDK)
 # The engine is pinned, not inherited. The link step below names
-# `GhosttyTerminal.o`, `GhosttyKit.o` and `MSDisplayLink.o` in the products
+# `GhosttyTerminal.o`, `GhosttyKit.o` and `DisplayLink.o` in the products
 # directory, and one merged object per target is the *swiftbuild* layout: the
 # native engine emits none of those names anywhere (per-file objects under
 # `<target>.build/` instead) and puts the swiftmodules in `Modules/` rather
@@ -410,7 +410,7 @@ $(IOS_APP): $(IOS_SOURCES) $(IOS_KIT_SOURCES) $(IOS_ASSETS) Resources/iOS-Info.p
 		-o $(IOS_APP)/Moomux $(IOS_SOURCES) \
 		$(IOS_PRODUCTS)/libMoomuxKit.a \
 		$(IOS_PRODUCTS)/GhosttyTerminal.o $(IOS_PRODUCTS)/GhosttyKit.o \
-		$(IOS_PRODUCTS)/MSDisplayLink.o $(IOS_PRODUCTS)/DiffKit.o \
+		$(IOS_PRODUCTS)/DisplayLink.o $(IOS_PRODUCTS)/DiffKit.o \
 		$(IOS_PRODUCTS)/libghostty.a -lc++
 	cp Resources/iOS-Info.plist $(IOS_APP)/Info.plist
 	cp THIRD_PARTY_NOTICES.md LICENSE $(IOS_APP)/
@@ -524,7 +524,7 @@ ios-archive: $(IOS_NOSE) $(IOS_ICON)
 	$(XCODEBUILD) -project Moomux.xcodeproj -scheme Moomux \
 		-destination 'generic/platform=iOS' -configuration Release \
 		-archivePath $(XC_ARCHIVE) CURRENT_PROJECT_VERSION=$(XC_BUILD) $(XC_AUTH) \
-		-allowProvisioningUpdates archive
+		-onlyUsePackageVersionsFromResolvedFile -allowProvisioningUpdates archive
 
 # Uploads straight from the export (destination=upload in ExportOptions), so no
 # .ipa is written. Apple processes the build for a few minutes after this

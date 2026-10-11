@@ -35,22 +35,17 @@ let package = Package(
         // are ~250KB of Swift; cmux's are ~25,000 lines over a ghostty fork).
         // This package is that layer, already written. See CLAUDE.md.
         //
-        // Pinned exactly, not `from:`: releases are weekly `1.5.<YYYYMMDD>`
-        // snapshots of an upstream API that is explicitly not stable yet, so a
-        // bump is a deliberate act with a screenshot behind it.
-        //
-        // Temporarily a fork: 1.6.20260922 plus the one commit of
-        // Lakr233/libghostty-spm#59, which makes held keys repeat on iOS —
-        // Delete on the software keyboard, and every key on a hardware one.
-        // The binary is still upstream's: the fork's manifest downloads the
-        // same release asset. Switch back to Lakr233's URL at the first
-        // release that contains that PR.
-        .package(url: "https://github.com/afitzgerald/libghostty-spm.git", exact: "1.6.20260922-key-repeat.1"),
+        // Pinned exactly, not `from:`: releases are near-daily
+        // `<major>.<minor>.<YYYYMMDDNN>` snapshots of an upstream API that is
+        // explicitly not stable yet — 2.0 removed the long-press selection
+        // sheet outright — so a bump is a deliberate act with a screenshot
+        // behind it.
+        .package(url: "https://github.com/Lakr233/libghostty-spm.git", exact: "2.2.2026100801"),
         // Diff parsing, highlighting and `PatchView` for the iPhone's Changes
         // screen — MergeRight's engine, extracted so both apps share it.
-        // `exact:` for libghostty's reason: pre-1.0, so a minor can break the
-        // API, and a bump here is a deliberate act with a screenshot behind it.
-        .package(url: "https://github.com/afitzgerald/DiffKit.git", .upToNextMinor(from: "0.2.0")),
+        // Minor-pinned for libghostty's reason: pre-1.0, so a minor can break
+        // the API, and a bump here is a deliberate act with a screenshot behind it.
+        .package(url: "https://github.com/afitzgerald/DiffKit.git", .upToNextMinor(from: "0.3.8")),
     ],
     targets: [
         // Everything platform-independent: the wire types, the client, the
