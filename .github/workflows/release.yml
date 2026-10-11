@@ -43,6 +43,15 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
+      # A step in the job that already ships, not a workflow of its own, so it
+      # costs seconds rather than another runner. Nothing under 72 hours old
+      # ships, and the build takes only what this checked: SWIFT_BUILD_FLAGS
+      # on the notarize step stops it resolving past Package.resolved.
+      - name: Refuse dependencies under 72 hours old
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: Scripts/dependency_age.sh
+
       - name: Resolve version
         id: version
         env:
@@ -109,6 +118,7 @@ jobs:
             --apple-id ${{ secrets.APPLE_ID }}
             --team-id ${{ secrets.APPLE_TEAM_ID }}
             --password ${{ secrets.APPLE_APP_PASSWORD }}
+          SWIFT_BUILD_FLAGS: --only-use-versions-from-resolved-file
         run: make notarize
 
       - name: Checksum

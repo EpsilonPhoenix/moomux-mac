@@ -7,7 +7,7 @@ reproduced at the end of this file.
 |---|---|---|
 | [Ghostty](https://github.com/ghostty-org/ghostty) (libghostty) | Terminal engine, statically linked | Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors |
 | [libghostty-spm](https://github.com/Lakr233/libghostty-spm) | Swift layer over libghostty | Copyright (c) 2026 @Lakr233 |
-| [MSDisplayLink](https://github.com/Lakr233/MSDisplayLink) | Display link, via libghostty-spm | Copyright (c) 2024 Lakr Aream |
+| [DisplayLink](https://github.com/Lakr233/DisplayLink) | Display link, via libghostty-spm | Copyright (c) 2024 Lakr Aream |
 | [DiffKit](https://github.com/afitzgerald/DiffKit) | Diff rendering on the iPhone | Copyright (c) 2026 Alan Fitzgerald |
 | [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes) | The terminal themes in `Resources/ghostty-themes` | Copyright (c) 2011 to Present Mark Badolato |
 

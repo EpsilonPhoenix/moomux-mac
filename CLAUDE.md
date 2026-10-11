@@ -248,7 +248,7 @@ terminal view, override the `UITextInput` methods in `LinkTapView` and log to a 
 `tmp/` (`simctl get_app_container booted app.moomux.Moomux data`) — `NSLog` does not help here
 either. That is how held ⌫ was traced: the keyboard asks for the position before the caret, and
 the caret sat at the start of libghostty-spm's always-empty document, so it never auto-repeated
-(fixed by Lakr233/libghostty-spm#59, which the fork below carries).
+(fixed by Lakr233/libghostty-spm#59, in every release since 1.6.20260928).
 
 **Trying a change to libghostty-spm.** `make ios` depends only on this repo's sources, so an edit
 under `.build/checkouts/libghostty-spm` is not rebuilt — `touch` a file in `Sources/MoomuxiOS`
@@ -829,15 +829,28 @@ Decisions, not oversights. Don't "fix" these without being asked.
   surface, so key translation, IME, mouse, selection and the app runtime would all be ours.
   Ghostty's own are ~250KB of Swift; cmux's are ~25,000 lines on top of a ghostty fork. This
   package is that layer, already written. Pinned with `exact:` and not `from:` because it ships
-  weekly `1.5.<YYYYMMDD>` snapshots of an API upstream says is not stable yet — a bump is a
-  deliberate act with a screenshot behind it. The escape hatch if it ever goes stale is the source
+  near-daily `<major>.<minor>.<YYYYMMDDNN>` snapshots of an API upstream says is not stable yet —
+  2.0 removed the phone's selection sheet API outright — so a bump is a deliberate act with a
+  screenshot behind it. The escape hatch if it ever goes stale is the source
   build above, which needs zig 0.16 (brew has exactly that) and Xcode selected.
-  **Currently pinned to a fork**, `afitzgerald/libghostty-spm` at `1.6.20260922-key-repeat.1`:
-  upstream 1.6.20260922 plus the one commit of Lakr233/libghostty-spm#59 — held keys repeat on iOS,
-  both Delete on the software keyboard and every key on a hardware keyboard, where UIKit sends one
-  `pressesBegan` and nothing more. The fork changes Swift only; its manifest downloads upstream's
-  own binary. Back to Lakr233's URL at the first release that contains #59 — `Package.swift` says
-  the same.
+- **No pin, package or action, may be under 72 hours old, except our own (`afitzgerald/*`).**
+  A cooldown against a compromised release, which mostly gets yanked within a day or two.
+  `Scripts/dependency_age.sh` is MergeRight's (afitzgerald/MergeRight#157) with yq in place of
+  rg, since the runner image has no ripgrep. It covers both `Package.resolved` files and every
+  workflow `uses:`. Actions must be pinned to a SHA with the version as a trailing comment, and
+  a tag that no longer points at its SHA fails. It runs as a step in the release and TestFlight
+  jobs, not a workflow of its own, so it needs no extra runner. Those builds cannot resolve past the lock
+  (`--only-use-versions-from-resolved-file`, `-onlyUsePackageVersionsFromResolvedFile`). Run it
+  yourself before a PR that bumps a pin:
+
+  ```sh
+  Scripts/dependency_age.sh                       # ok/::error:: per pin, exit 1 on any failure
+  MIN_AGE_HOURS=999999 Scripts/dependency_age.sh  # fails every non-exempt pin: proves it bites
+  ```
+
+  An urgent fix goes through with `MIN_AGE_HOURS=0`, said in the PR. An Xcode resolve picks the
+  newest tag in range (DiffKit's `upToNextMinor`), so after one, check both `Package.resolved`
+  files agree.
 - **The app is ~11MB rather than ~5MB**, all of it the statically linked engine (the archive's
   macOS slice is 39MB universal; the linker keeps about 6MB of it). One-time ~190MB in `.build`
   for the downloaded xcframework. Measured, and accepted knowingly: Homebrew cask users

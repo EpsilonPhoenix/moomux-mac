@@ -451,10 +451,12 @@ the software keyboard covers half the pane, and most of the value there is readi
 is asking. Raising the keyboard shrinks the surface, which triggers a reattach (D27). Suspect that
 first if input misbehaves right after the keyboard appears.
 
-**D32. Same scroll fix on both, for the same cause.** ghostty reports a wheel at the last pointer
-position and drops it when there is none. The Mac forwards `scrollWheel` as a `mouseMoved` inside
-the view. The phone calls `sendMousePos` on `touchesBegan`. Delete both once libghostty-spm sends
-a position itself.
+**D32. A scroll fix on the Mac only, because the phone's package grew its own.** ghostty reports
+a wheel at the last pointer position and drops it when there is none. The Mac forwards
+`scrollWheel` as a `mouseMoved` inside the view; delete it once libghostty-spm's AppKit view sends
+a position itself. The phone used to call `sendMousePos` on `touchesBegan` for the same reason,
+and stopped at libghostty-spm 2.x, whose touch scroll sends the finger's position before every
+step.
 
 **D33. The same two surface delegates on both.**
 - **Clipboard confirmation.** A paste is allowed and OSC 52 is refused. With no delegate, the
@@ -462,13 +464,15 @@ a position itself.
 - **Open-URL.** Every surface installs a delegate, because without one ghostty core opens links
   itself and bypasses the allowlist.
 
-**D52. Selecting text: in the pane on the Mac, in a sheet on the phone.** The Mac drags a
-selection in the surface and copies with ⌘C. On the phone a finger drag is a scroll, and tmux owns
-the mouse, so a long-press opens `SelectionSheet` instead: the visible screen as text in a
-read-only `UITextView`, the word under the finger pre-selected, iOS's own handles and Copy. The
-package's long-press recognizer refuses to begin unless the delegate conforms to
-`TerminalSurfaceTextSelectionRequestDelegate`, which is why there was no selection at all before.
-Known limit: the visible screen only, not scrollback.
+**D52. Selecting text: in the pane on both, by pointer on the Mac and by touch on the phone.**
+The Mac drags a selection in the surface and copies with ⌘C. The phone uses libghostty-spm's inline
+selection, on by default since 2.0: double-tap a word, triple-tap a row, long-press for the menu,
+then drag the handles and Copy. It draws its own highlight and synthesizes no mouse events, so it
+works while tmux owns the mouse. A one-finger drag is still a scroll and two fingers scroll the
+local grid. The app has no code for it. Until 2.0 a long-press opened our own `SelectionSheet`
+over the package's viewport snapshot, an API 2.0 removed. Known limit: on a tmux pane the local
+grid holds little beyond the screen, so it is the visible screen in practice. A single tap now
+waits out the double-tap, which is also when `LinkTapView`'s link probe runs.
 
 ---
 
@@ -627,7 +631,11 @@ exits.** Both build on `NewSessionForm` and the core's `AgentOptions`.
 - **Native diff, phone only.** At 43–62 columns the tmux pager is the worse half, so the phone
   renders the diff itself with `DiffKit`, and the core grew `Diff`: the merge-base diff as text,
   untracked files included, with no tmux needed. So `canDiff` does not need a live session, and
-  a parked session's diff opens.
+  a parked session's diff opens. It is a review loop: the file stepper's Next marks a file viewed
+  and goes to the next unviewed one, the list shows the marks (swipe a row to toggle one), and a
+  file the agent edits again comes back unviewed (`ViewedFiles`, memory only). The ⋯ menu finds
+  across the whole change (DiffKit's `DiffFind`, "3 of 12" across files) and hides
+  whitespace-only edits.
 - **The Mac instead.** It keeps the tmux pager plus a GUI diff tool (⌘D, `ToolPath`, which does
   not exist on iOS). On a desk those beat any viewer the app could draw.
 
@@ -725,7 +733,7 @@ basics):
 - **Timing the first screenshot.** At ~1.6s it beats the notification prompt but also the first
   snapshot, so every label reads "unknown". ~2.2s is the window between the two.
 - **Held keys do not repeat in the simulator.** iOS sends one `pressesBegan` per hold. A device
-  repeats in its HID layer, and the libghostty-spm fork handles both paths. `TerminalDebugLog.sink`
+  repeats in its HID layer, and libghostty-spm handles both paths (Lakr233/libghostty-spm#59). `TerminalDebugLog.sink`
   with `.enable(.input)` sends the package's input log to a file.
 - **`NSLog` does not reach `log show` from the iOS bundle either.** Append to a file under
   `URL.temporaryDirectory` and read it through `simctl get_app_container booted app.moomux.Moomux

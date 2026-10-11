@@ -44,8 +44,6 @@ struct TerminalScreen: View {
     /// shown. Only for what is shown: the detached read cannot be interrupted
     /// and runs to the end, and the next fetch clears what it wrote.
     @State private var fetch: Task<Void, Never>?
-    /// A long-press's snapshot of the screen, open for selecting and copying.
-    @State private var selecting: SelectableText?
 
     var body: some View {
         AttachedTerminal(controller: app.terminalController,
@@ -60,8 +58,7 @@ struct TerminalScreen: View {
                          onEnded: { dismiss() },
                          onURL: open(url:),
                          onFile: open(file:),
-                         onPinch: { fontSize = $0 },
-                         onSelect: { selecting = SelectableText(request: $0) })
+                         onPinch: { fontSize = $0 })
             // The core's Ghostty config arriving after this pane was built:
             // a new surface is the only way to apply it (`paneConfigGeneration`).
             .id(app.paneConfigGeneration)
@@ -78,7 +75,6 @@ struct TerminalScreen: View {
             // missing. Reported as "the cursor is two lines below where it
             // should be", which is precisely the inset in rows.
             .quickLookPreview($preview)
-            .sheet(item: $selecting) { SelectionSheet(selection: $0, fontSize: fontSize) }
             // Leaving the pane abandons its fetch, or a late refusal raises
             // "Couldn't do that" over whatever screen is next.
             .onDisappear {
@@ -241,7 +237,6 @@ struct AttachedTerminal: UIViewRepresentable {
     let onURL: (URL) -> Void
     let onFile: (String) -> Void
     let onPinch: (Double) -> Void
-    let onSelect: (TerminalTextSelectionRequest) -> Void
 
     func makeUIView(context: Context) -> UITerminalView {
         let view = LinkTapView(frame: .init(x: 0, y: 0, width: 390, height: 600))
@@ -282,7 +277,7 @@ struct AttachedTerminal: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(client: client, sessionID: sessionID, onEnded: onEnded, onURL: onURL,
-                    onFile: onFile, onSelect: onSelect)
+                    onFile: onFile)
     }
 
     /// A tap on a link opens it.
@@ -353,29 +348,16 @@ struct AttachedTerminal: UIViewRepresentable {
             }
         }
 
-        /// ghostty reports a wheel to tmux at the last pointer position and
-        /// drops it when there is none — and the package's finger-scroll pan
-        /// sends no position (its trackpad one does), while the probe below
-        /// parks the pointer off-screen after every tap. So a swipe never
-        /// reached tmux at all. Aim the pointer at the finger as it lands,
-        /// before the pan begins; momentum after lift keeps that position.
-        /// The Mac pane's `scrollWheel` override is the same fix. Delete once
-        /// `handleTouchScrollGesture` sends a position itself.
-        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-            if let touch = touches.first, touch.type == .direct {
-                let point = touch.location(in: self)
-                sendMousePos(x: point.x, y: point.y)
-            }
-            super.touchesBegan(touches, with: event)
-        }
-
+        /// Kept past `super`: with inline selection on, a single tap is a
+        /// recognizer that fires only once a double tap has failed, well
+        /// after `touchesEnded` returns. Consumed by the toggle it leads to.
         override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
             tap = touches.first?.location(in: self)
             super.touchesEnded(touches, with: event)
-            tap = nil
         }
 
         override func toggleSoftwareKeyboard() {
+            defer { tap = nil }
             guard let tap, let coordinator = delegate as? Coordinator else {
                 return super.toggleSoftwareKeyboard()
             }
@@ -392,11 +374,9 @@ struct AttachedTerminal: UIViewRepresentable {
     final class Coordinator: NSObject, TerminalSurfaceResizeDelegate,
                              TerminalSurfaceOpenURLDelegate,
                              TerminalSurfaceHoverLinkDelegate,
-                             TerminalSurfaceClipboardConfirmationDelegate,
-                             TerminalSurfaceTextSelectionRequestDelegate {
+                             TerminalSurfaceClipboardConfirmationDelegate {
         private let onURL: (URL) -> Void
         private let onFile: (String) -> Void
-        private let onSelect: (TerminalTextSelectionRequest) -> Void
         /// The attach itself — sizing, resize in place, reconnects — shared
         /// with the Mac's remote panes.
         private let remote: RemoteAttach
@@ -404,21 +384,10 @@ struct AttachedTerminal: UIViewRepresentable {
         var session: InMemoryTerminalSession { remote.session }
 
         init(client: MoomuxClient, sessionID: Session.ID, onEnded: @escaping () -> Void,
-             onURL: @escaping (URL) -> Void, onFile: @escaping (String) -> Void,
-             onSelect: @escaping (TerminalTextSelectionRequest) -> Void) {
+             onURL: @escaping (URL) -> Void, onFile: @escaping (String) -> Void) {
             remote = RemoteAttach(client: client, sessionID: sessionID, onEnded: onEnded)
             self.onURL = onURL
             self.onFile = onFile
-            self.onSelect = onSelect
-        }
-
-        /// A long-press. Conforming is the opt-in: without this delegate the
-        /// package's long-press recognizer refuses to begin, so there was no
-        /// way to select text on the phone at all. tmux owns the mouse, so a
-        /// finger drag cannot select in the pane itself — the package hands
-        /// over the visible screen as text instead, for a native text view.
-        func terminalDidRequestTextSelection(_ request: TerminalTextSelectionRequest) {
-            onSelect(request)
         }
 
         func terminalDidResize(columns: Int, rows: Int) {
@@ -465,69 +434,6 @@ struct AttachedTerminal: UIViewRepresentable {
         }
     }
 }
-// MARK: - Selecting text
-
-/// A long-press's snapshot, identifiable so `.sheet(item:)` can present it.
-struct SelectableText: Identifiable {
-    let id = UUID()
-    let request: TerminalTextSelectionRequest
-}
-
-/// The screen as plain text in a read-only `UITextView`, with the word under
-/// the finger pre-selected, so iOS's own handles, Copy and Share do the rest.
-/// The package's example app does the same. Ceiling: the visible screen
-/// only (`readViewportText`), not scrollback — scroll first, then hold.
-struct SelectionSheet: View {
-    let selection: SelectableText
-    let fontSize: Double
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            SelectableTextView(text: selection.request.text,
-                               range: selection.request.anchorRange,
-                               fontSize: fontSize)
-                .ignoresSafeArea(edges: .bottom)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { dismiss() }
-                    }
-                }
-        }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-    }
-}
-
-private struct SelectableTextView: UIViewRepresentable {
-    let text: String
-    let range: NSRange?
-    let fontSize: Double
-
-    func makeUIView(context _: Context) -> UITextView {
-        let view = UITextView()
-        view.isEditable = false
-        view.text = text
-        view.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        view.alwaysBounceVertical = true
-        // The selection only shows once the view is in a window and first
-        // responder — too early here, so on the next turn of the run loop.
-        DispatchQueue.main.async {
-            view.becomeFirstResponder()
-            if let range, NSMaxRange(range) <= (view.text as NSString).length {
-                view.selectedRange = range
-                view.scrollRangeToVisible(range)
-            } else {
-                view.selectAll(nil)
-            }
-        }
-        return view
-    }
-
-    func updateUIView(_: UITextView, context _: Context) {}
-}
-
 // MARK: - The cow
 
 /// The cow mark for `CowQuip`. `UIImage` cannot read the Mac's SVG, so
