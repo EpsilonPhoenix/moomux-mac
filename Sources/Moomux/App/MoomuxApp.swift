@@ -111,6 +111,23 @@ struct SessionCommands: Commands {
             Button("Settings…") { app.sheet = .settings }
                 .keyboardShortcut(",", modifiers: .command)
         }
+        // AppKit adds ⌥⌘Q "Quit and Keep Windows" as Quit's alternate, and
+        // SwiftUI drops it whenever it rebuilds the main menu (state this
+        // menu reads changing, as the first snapshot does). AppKit re-adds it
+        // only while the menu is opening, after sizing it, so that open drew
+        // an empty row at the bottom. Declared here, the alternate is part of
+        // what SwiftUI builds, and AppKit, finding one, adds none of its own.
+        // Below 15 there is no `modifierKeyAlternate`, and the row stays.
+        if #available(macOS 15, *) {
+            CommandGroup(replacing: .appTermination) {
+                Button("Quit Moomux") { NSApp.terminate(nil) }
+                    .keyboardShortcut("q")
+                    .modifierKeyAlternate(.option) {
+                        Button("Quit and Keep Windows") { NSApp.terminate(nil) }
+                            .keyboardShortcut("q", modifiers: [.command, .option])
+                    }
+            }
+        }
         // SwiftUI gives `NavigationSplitView` a toolbar button and no menu
         // item, and a shortcut needs a menu item — so ⌃⌘S, the system-wide
         // spelling of this, did nothing at all. `replacing:`, not `after:`:
