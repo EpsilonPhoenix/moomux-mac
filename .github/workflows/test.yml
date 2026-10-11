@@ -11,26 +11,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # There is no Xcode on the dev machine this app is built on, and CI mirrors
-  # that: swift build + the assert-based demo() selfcheck, same as `make
-  # build selfcheck` locally. No macOS version matrix — SwiftUI/AppKit APIs
-  # used here (Package.swift pins .macOS(.v14)) aren't available on older
-  # runners, and there's only one platform this app ships for.
+  # One debug build (selfcheck, which doubles as the warnings gate), one
+  # release build (`make app`) and the iOS bundle. No macOS version matrix —
+  # SwiftUI/AppKit APIs used here (Package.swift pins .macOS(.v14)) aren't
+  # available on older runners, and there's only one platform this app ships
+  # for.
   test:
     runs-on: macos-26
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Build (debug)
-        run: swift build
-
       # Debug, not release: -O deletes every `assert`, which is the whole
       # selfcheck mechanism (see Scripts/selfcheck.sh). SelfTest itself
       # refuses to run under -O rather than reporting a hollow pass, so this
       # would fail loudly rather than silently if it were ever built wrong.
-      - name: Selfcheck
-        run: make selfcheck
+      #
+      # This is also the zero-warnings gate (the standing rule in CLAUDE.md):
+      # the debug build is the first one on a fresh checkout, so it is a clean
+      # build and every file's diagnostics are emitted. That only holds while
+      # nothing before this step builds — swift build re-emits diagnostics
+      # solely for the files it recompiles.
+      - name: Selfcheck, warnings as errors
+        run: make selfcheck SWIFT_BUILD_FLAGS="-Xswiftc -warnings-as-errors"
 
       # Confirms a release build still produces a working, ad-hoc-signed
       # bundle — the shape release.yml ships. Not a substitute for selfcheck
@@ -56,17 +59,12 @@ jobs:
           xcrun --sdk iphonesimulator --show-sdk-path
           make ios
 
-  lint:
-    runs-on: macos-26
-    timeout-minutes: 15
+  # Plain bash and git, no macOS toolchain, so it skips the macOS runner.
+  version-rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      # Whole tree, zero warnings — matches the standing rule in CLAUDE.md.
-      # A clean build is required here (not incremental) because swift build
-      # only re-emits diagnostics for files it recompiles.
-      - name: Build with warnings as errors
-        run: swift build -Xswiftc -warnings-as-errors
 
       - name: Release version rules
         run: ./Scripts/next_version_test.sh
