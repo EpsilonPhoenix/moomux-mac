@@ -144,13 +144,53 @@ struct TerminalPane: NSViewRepresentable {
         /// but only trusted inside the view: momentum keeps arriving after the
         /// pointer drifts out, and passing that on would undo `mouseExited`
         /// and land the wheel on whichever tmux pane sits at the clamped edge.
-        /// Delete this once libghostty-spm's AppKit `scrollWheel` sends a
-        /// position itself, as its UIKit one already does.
+        /// Delete the `mouseMoved` call once libghostty-spm's AppKit
+        /// `scrollWheel` sends a position itself, as its UIKit one already
+        /// does — the swipe below stays.
         override func scrollWheel(with event: NSEvent) {
             if bounds.contains(convert(event.locationInWindow, from: nil)) {
                 mouseMoved(with: event)
             }
+            guard !swiped(event) else { return }
             super.scrollWheel(with: event)
+        }
+
+        /// A two-finger sideways swipe switches tmux window (`WindowSwipe`),
+        /// once per gesture. Only the fingers' own phases count: a mouse wheel
+        /// carries none. Ceiling: a sideways scroll in a program that wants
+        /// one (`less -S`) switches window instead — accepted.
+        private var swipeTravel: (dx: Double, dy: Double)?
+        /// Set once a gesture has switched: the rest of it, momentum included,
+        /// is kept from tmux, or its drift scrolls the new window into
+        /// copy-mode.
+        private var swipeDone = false
+        var onSwipe: ((Int) -> Void)?
+
+        /// Whether `event` belongs to a swipe that switched, and so is eaten.
+        private func swiped(_ event: NSEvent) -> Bool {
+            if event.phase == .began {
+                swipeTravel = (0, 0)
+                swipeDone = false
+            } else if event.phase.isEmpty && event.momentumPhase.isEmpty {
+                swipeDone = false // a mouse wheel
+            }
+            if swipeDone { return true }
+            guard let travel = swipeTravel, event.phase == .began || event.phase == .changed else {
+                swipeTravel = nil
+                return false
+            }
+            // The delta follows the fingers under natural scrolling and runs
+            // against them without it.
+            let sign = event.isDirectionInvertedFromDevice ? 1.0 : -1.0
+            // Vertical travel is summed unsigned: scrolling up and back down
+            // is still a vertical gesture, not none.
+            let dx = travel.dx + sign * event.scrollingDeltaX, dy = travel.dy + abs(event.scrollingDeltaY)
+            swipeTravel = (dx, dy)
+            guard let step = WindowSwipe.step(dx: dx, dy: dy, minimum: 60) else { return false }
+            onSwipe?(step)
+            swipeTravel = nil
+            swipeDone = true
+            return true
         }
 
         /// Dropping Finder files onto a terminal types their shell-quoted
@@ -195,6 +235,7 @@ struct TerminalPane: NSViewRepresentable {
         }
         let view = AttachedTerminalView(frame: .init(x: 0, y: 0, width: 640, height: 400))
         view.registerForDraggedTypes([.fileURL])
+        view.onSwipe = { [pool, sessionID] in pool.selectWindow(sessionID, delta: $0) }
         let delegate = context.coordinator
         view.delegate = delegate
         pool.plainDelegates[sessionID] = delegate

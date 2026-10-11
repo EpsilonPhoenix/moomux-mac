@@ -58,7 +58,8 @@ struct TerminalScreen: View {
                          onEnded: { dismiss() },
                          onURL: open(url:),
                          onFile: open(file:),
-                         onPinch: { fontSize = $0 })
+                         onPinch: { fontSize = $0 },
+                         onSwipe: { app.selectWindow(sessionID, delta: $0) })
             // The core's Ghostty config arriving after this pane was built:
             // a new surface is the only way to apply it (`paneConfigGeneration`).
             .id(app.paneConfigGeneration)
@@ -237,11 +238,13 @@ struct AttachedTerminal: UIViewRepresentable {
     let onURL: (URL) -> Void
     let onFile: (String) -> Void
     let onPinch: (Double) -> Void
+    let onSwipe: (Int) -> Void
 
     func makeUIView(context: Context) -> UITerminalView {
         let view = LinkTapView(frame: .init(x: 0, y: 0, width: 390, height: 600))
         view.liveFontSize = fontSize
         view.onPinch = onPinch
+        view.onSwipe = onSwipe
         pane.view = view
         view.delegate = context.coordinator
         view.controller = controller
@@ -317,6 +320,52 @@ struct AttachedTerminal: UIViewRepresentable {
                 recognizer.isEnabled = false
             }
             addGestureRecognizer(UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:))))
+            // The package's touch-scroll pan, which already owns every finger
+            // drag; a second recognizer would have to fight it. Matched as the
+            // one pan limited to direct touches: its pointer-selection pan
+            // takes indirect ones, and a quick drag-select must not switch
+            // window. That also keeps this off the gestures the package
+            // reports to tmux as a held mouse button, which only a pointer
+            // makes. Not on touch count: inline selection raises it to 2.
+            let direct = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+            for case let pan as UIPanGestureRecognizer in gestureRecognizers ?? []
+            where pan.allowedTouchTypes == direct {
+                pan.addTarget(self, action: #selector(panned(_:)))
+            }
+        }
+
+        var onSwipe: ((Int) -> Void)?
+        private var swipeStart: CGPoint?
+        private var swipeLast: CGPoint = .zero
+        private var swipeVertical: CGFloat = 0
+
+        /// A sideways swipe switches tmux window (`WindowSwipe`): the drag
+        /// and its release both have to be sideways, so a vertical scroll
+        /// that kicks out as the finger lifts stays a scroll. Vertical travel
+        /// is summed unsigned, as on the Mac. The package resets the pan's
+        /// translation on every step, hence tracking locations. Not from the
+        /// leading edge, which is Back's swipe. Ceilings, both accepted: the
+        /// package's own scroll and momentum still run, and a fast sideways
+        /// drag extending an inline selection switches too.
+        @objc private func panned(_ gesture: UIPanGestureRecognizer) {
+            let point = gesture.location(in: nil)
+            switch gesture.state {
+            case .began:
+                swipeStart = point
+                swipeVertical = 0
+            case .changed:
+                swipeVertical += abs(point.y - swipeLast.y)
+            case .ended:
+                swipeVertical += abs(point.y - swipeLast.y)
+                guard let start = swipeStart, start.x > 30 else { break }
+                let v = gesture.velocity(in: self)
+                guard let step = WindowSwipe.step(dx: point.x - start.x, dy: swipeVertical, minimum: 60),
+                      WindowSwipe.step(dx: v.x, dy: v.y, minimum: 300) == step else { break }
+                onSwipe?(step)
+            default:
+                break
+            }
+            swipeLast = point
         }
 
         required init?(coder: NSCoder) { fatalError("not from a nib") }

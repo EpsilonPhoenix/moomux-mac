@@ -432,6 +432,15 @@ public final class MoomuxClient: Sendable {
         try call("Review", Args(id: id)).hint ?? ""
     }
 
+    /// Steps the session's tmux to its next (+1) or previous (-1) window. The
+    /// core runs it, so it works whatever the user's tmux prefix is — typing
+    /// one into the pane would land in the agent's prompt when it is not
+    /// `C-b`. A parked session is refused, never revived, and so is a step
+    /// with nowhere to go (tmux's "no next window").
+    public func selectWindow(id: String, delta: Int) throws {
+        try call("SelectWindow", Args(id: id, delta: delta))
+    }
+
     // MARK: - Mutations
     //
     // Ordered as `internal/ipc/server.go` dispatches them, so the two files
@@ -851,6 +860,9 @@ public final class MoomuxClient: Sendable {
             check(try client.diff(id: "s1") == nil, "ok=false is a non-git worktree, not an empty diff")
         }
         expect(#"{"args":{"id":"s1"},"method":"Review"}"#) { check(try client.review(id: "s1") == "") }
+        expect(#"{"args":{"delta":-1,"id":"s1"},"method":"SelectWindow"}"#) {
+            try client.selectWindow(id: "s1", delta: -1)
+        }
 
         expect(#"{"method":"GhosttyConfig"}"#, answer: #"{"result":{"ghostty":{"text":"font-size = 13\n"}}}"#) {
             check(try client.ghosttyConfig() == "font-size = 13\n")

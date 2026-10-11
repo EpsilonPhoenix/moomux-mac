@@ -272,6 +272,7 @@ The pane's own connection has the same half-open window (D28 notices only when a
 | Look | the user's Ghostty config | built-in dark + phone padding |
 | Size control | ⌘+ / ⌘− zoom (ghostty's own, kept in `paneKeybinds`) | Text Size in the pane's ⋯ menu, plus pinch; both saved |
 | Files in | Finder drop types local shell-quoted paths | Photos/Files → `SaveFile` → pasted path |
+| tmux windows | two-finger sideways swipe, ≥60pt of travel, once per gesture | one-finger sideways swipe, ≥60pt and ≥300pt/s, not from the left edge (Back) |
 
 **D23. Different backends, same VT engine.** The Mac spawns a local `tmux attach` through
 libghostty's `.exec` backend. iOS cannot spawn anything, so the pty lives on the core's machine:
