@@ -1839,6 +1839,15 @@ public final class AppState {
         }
     }
 
+    /// A sideways swipe on an attached pane (`WindowSwipe`). A refusal is
+    /// dropped, not alerted: a gesture is often stray, a session with one
+    /// window refuses every swipe, and so does a core too old to serve this.
+    public func selectWindow(_ id: Session.ID, delta: Int) {
+        Task {
+            try? await withoutBlockingTheUI { [client] in try client.selectWindow(id: id, delta: delta) }
+        }
+    }
+
     /// An external GUI diff tool, run against a session's worktree. Empty
     /// means the feature is off — there is no default, because a command that
     /// does not exist on this machine would only ever fail.
