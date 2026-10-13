@@ -12,6 +12,10 @@ struct NewSessionSheet: View {
     let focus: @MainActor () -> Bool
     @Environment(\.dismiss) private var dismiss
     @State private var form = NewSessionForm()
+    /// The core's refusal of the last Create, verbatim, when the sheet was
+    /// reopened over it.
+    @State private var error: String?
+    @FocusState private var baseBranchFocused: Bool
     @State private var photos: [PhotosPickerItem] = []
     @State private var importingFiles = false
     @State private var attachments = AttachQueue()
@@ -24,10 +28,12 @@ struct NewSessionSheet: View {
     /// Anything typed. Pickers are cheap to redo; a half-written prompt is not.
     /// The base branch counts once it differs from the project's, which it
     /// arrives filled in with.
-    private var edited: Bool {
+    private var edited: Bool { Self.edited(form) }
+    private static func edited(_ form: NewSessionForm) -> Bool {
         form.baseBranchEdited
             || ![form.name, form.prompt, form.existingBranch, form.ticket, form.pr].allSatisfy(\.isEmpty)
     }
+    private var blamesBaseBranch: Bool { error.map(NewSessionForm.blamesBaseBranchField) == true }
 
     private var agentPicker: some View {
         Picker("Agent", selection: $form.agent) {
@@ -103,6 +109,10 @@ struct NewSessionSheet: View {
                     field("Existing branch", $form.existingBranch, prompt: "resume, don't cut")
                     field("Base branch", $form.baseBranch, prompt: "the repo's default")
                         .disabled(project?.isPlain == true || !form.existingBranch.isEmpty)
+                        .focused($baseBranchFocused)
+                        .foregroundStyle(blamesBaseBranch ? .red : .primary)
+                } footer: {
+                    if let error { Text(error).foregroundStyle(.red) }
                 }
                 Section {
                     field("Ticket", $form.ticket, prompt: "")
@@ -129,7 +139,7 @@ struct NewSessionSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     // Closes at once, as on the Mac: `busy` reports progress in
-                    // the status badge and a refusal lands in the list's alert.
+                    // the status badge and a refusal reopens this sheet.
                     Button("Create") {
                         app.create(form, focus: focus)
                         dismiss()
@@ -146,11 +156,23 @@ struct NewSessionSheet: View {
         // (`canCreate`). The Mac can seed from the selected row; a phone has
         // no selection, and defaulting to the first project put every session
         // there unless you remembered to change it.
-        .onAppear { form = app.newSessionForm(project: "") }
+        // A refused create's form comes back whole, with the core's reason.
+        .onAppear {
+            (form, error) = app.openNewSessionForm(project: "")
+            if blamesBaseBranch { DispatchQueue.main.async { baseBranchFocused = true } }
+        }
+        .onChange(of: form.prompt) { _, prompt in app.promptDraft = prompt }
         // Opened before the config landed (the `-newSession` seam): take its
-        // defaults once it does, unless the user has already started.
+        // defaults once it does, unless the user has already started. The
+        // prompt is the saved draft, so it is carried over rather than counted.
         .onChange(of: projects) { _, _ in
-            if form.project.isEmpty && !edited { form = app.newSessionForm(project: "") }
+            var fresh = form
+            fresh.prompt = ""
+            if form.project.isEmpty && error == nil && !Self.edited(fresh) {
+                let prompt = form.prompt
+                form = app.newSessionForm(project: "")
+                form.prompt = prompt
+            }
         }
         .onChange(of: photos) { _, items in
             guard !items.isEmpty else { return }

@@ -185,6 +185,18 @@ struct RootView: View {
         // in whichever Info pane is showing, so it must not outlive the
         // selection. Per-session ones live in `sessionHints` and stay put.
         .onChange(of: app.selectedSessionID) { _, _ in app.hint = nil }
+        // A refused create reopens its sheet with the form as it was sent —
+        // unless another sheet is up, which one `.sheet(item:)` cannot stack
+        // on; then the alert says where the form went.
+        .onChange(of: app.failedCreate) { _, failed in
+            guard let failed else { return }
+            if app.sheet == nil {
+                app.sheet = .create
+            } else {
+                app.actionError = "Creating session failed: \(failed.error)\n\n"
+                    + "Your form is kept: New Session (⌘N) reopens it."
+            }
+        }
         // Every modal hangs off the root, not off a row: the Session menu can
         // fire any of them with no row on screen at all.
         .sheet(item: $app.sheet) { sheet in
@@ -259,6 +271,10 @@ private struct NewSessionSheet: View {
     @Environment(AppState.self) private var app
     @Environment(\.dismiss) private var dismiss
     @State private var form = NewSessionForm()
+    /// The core's refusal of the last Create, verbatim, when the sheet was
+    /// reopened over it.
+    @State private var error: String?
+    @FocusState private var baseBranchFocused: Bool
     @State private var showMore = false
     @State private var attachments = AttachQueue()
     @State private var importingFiles = false
@@ -359,6 +375,12 @@ private struct NewSessionSheet: View {
                     // while one is being resumed.
                     TextField("Base branch", text: $form.baseBranch, prompt: Text("the repo's default"))
                         .disabled(project?.isPlain == true || !form.existingBranch.isEmpty)
+                        .focused($baseBranchFocused)
+                        .overlay {
+                            if error.map(NewSessionForm.blamesBaseBranchField) == true {
+                                RoundedRectangle(cornerRadius: 5).stroke(.red)
+                            }
+                        }
                 }
                 Section {
                     TextField("Ticket", text: $form.ticket)
@@ -401,13 +423,20 @@ private struct NewSessionSheet: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if let error {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 // Closes at once rather than waiting out the worktree and the
                 // userscripts: `app.busy` reports progress in the toolbar, and
-                // a refusal lands in the error alert either way.
+                // a refusal reopens this sheet with the form as it was sent.
                 Button("Create") {
                     app.create(form)
                     dismiss()
@@ -422,10 +451,16 @@ private struct NewSessionSheet: View {
         // Seeded from the row being looked at — a second session in the same
         // project is the common case — else the first project, as on the
         // phone: "choose one" left every project-derived field blank.
+        // A refused create's form comes back whole, with the core's reason.
         .onAppear {
-            form = app.newSessionForm(project: app.session(id: app.selectedSessionID)?.project
-                                      ?? projects.first ?? "")
+            (form, error) = app.openNewSessionForm(project: app.session(id: app.selectedSessionID)?.project
+                                                   ?? projects.first ?? "")
+            if error.map(NewSessionForm.blamesBaseBranchField) == true {
+                // A field cannot take focus before the sheet is on screen.
+                DispatchQueue.main.async { baseBranchFocused = true }
+            }
         }
+        .onChange(of: form.prompt) { _, prompt in app.promptDraft = prompt }
         // The agent, and with it every list below it, belongs to the project.
         .onChange(of: form.project) { _, _ in app.applyProject(to: &form) }
         .onChange(of: form.agent) { _, _ in app.clampChoices(of: &form) }

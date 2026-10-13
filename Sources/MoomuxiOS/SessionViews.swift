@@ -335,6 +335,17 @@ struct SessionListView: View {
             // takes tens of seconds, and by then they may be typing in another
             // session's terminal, which a jump would detach.
             .sheet(isPresented: $creating) { NewSessionSheet(app: app, focus: { path.isEmpty }) }
+            // A refused create reopens its sheet with the form as it was sent,
+            // unless another sheet is up; then the alert says where it went.
+            .onChange(of: app.failedCreate) { _, failed in
+                guard let failed else { return }
+                if !creating && !showingNotes && !showingAcknowledgements {
+                    creating = true
+                } else {
+                    app.actionError = "Creating session failed: \(failed.error)\n\n"
+                        + "Your form is kept: New Session (+) reopens it."
+                }
+            }
             // "0": every version is newer, so the whole baked history.
             .sheet(isPresented: $showingNotes) { WhatsNewSheet(releases: WhatsNew.releases(after: "0")) }
             .sheet(isPresented: $showingAcknowledgements) { AcknowledgementsSheet() }

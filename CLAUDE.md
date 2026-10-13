@@ -985,7 +985,7 @@ Decisions, not oversights. Don't "fix" these without being asked.
 - **A slow write reports in the toolbar, not in its sheet.** `AppState.busy` is set by `mutate` for
   every action and rendered by `ConnectionBadge`, so the New Session sheet closes on Create rather
   than sitting there for the tens of seconds a worktree plus the worktree-create userscripts take.
-  A refusal still lands in the "Couldn't do that" alert. A step that degrades *after* the pane
+  A refusal reopens the sheet with the form exactly as sent and the core's message verbatim (`AppState.failedCreate`; the alert only if another sheet is up), and the first prompt is a `UserDefaults` draft (`promptDraft`), written on every edit and before the call, cleared only by a create that succeeds with it — a lost prompt is the worst thing this sheet can do. An untouched base branch is sent empty, so a stale project setting is blamed on the settings, not the field. A step that degrades *after* the pane
   exists — a PR tag or a first prompt that did not land — comes back on the result's `hint` rather
   than as an error, and the core is what decides that: once the pane exists the session is real, and
   reporting it as a failed creation invites a retry that answers "session already exists".
