@@ -177,6 +177,11 @@ public final class AppState {
     /// A mutation the server refused, until the user dismisses it. See
     /// `failed(_:_:)` for why this is not `connection`.
     public var actionError: String?
+    /// A create the core refused, with the form exactly as it was sent, until
+    /// a New Session sheet takes it back (`openNewSessionForm`). The sheet has
+    /// closed by the time the answer arrives, and its `@State` with it — this
+    /// is what keeps a long prompt and every other field from going too.
+    public var failedCreate: FailedCreate?
     /// What a write is doing, while it does it. Only `create` takes long
     /// enough to matter, but every mutation reports here so nothing has to
     /// hold a sheet open waiting for one. Rendered by `ConnectionBadge`.
@@ -633,6 +638,8 @@ public final class AppState {
     }
 
     public let client: MoomuxClient
+    /// Where `promptDraft` is kept; the selftest passes its own suite.
+    @ObservationIgnored private let drafts: UserDefaults
 
     private var tasks: [Task<Void, Never>] = []
     /// Whether the snapshot stream is currently delivering. It owns the
@@ -649,8 +656,9 @@ public final class AppState {
     /// No view reads this, and `@Observable` fires on any assignment.
     @ObservationIgnored private var notifier: Notifier?
 
-    public init(client: MoomuxClient = MoomuxClient()) {
+    public init(client: MoomuxClient = MoomuxClient(), drafts: UserDefaults = .standard) {
         self.client = client
+        self.drafts = drafts
     }
 
     // MARK: Derived
@@ -1047,6 +1055,39 @@ public final class AppState {
         applyProject(to: &form)
         return form
     }
+
+    /// What a New Session sheet opens with: a refused create's form and the
+    /// core's words for why, if one is waiting — else a fresh form carrying
+    /// the saved prompt draft.
+    public func openNewSessionForm(project: String) -> (NewSessionForm, error: String?) {
+        if let failed = failedCreate {
+            failedCreate = nil
+            return (failed.form, failed.error)
+        }
+        var form = newSessionForm(project: project)
+        form.prompt = promptDraft
+        return (form, nil)
+    }
+
+    public struct FailedCreate: Equatable, Sendable {
+        public var form: NewSessionForm
+        public var error: String
+    }
+
+    /// The first prompt as last typed, kept until a create with it succeeds —
+    /// across Cancel, a refused create and a quit, the way `internal/tui`'s
+    /// `draft.go` keeps it beside client.toml. `UserDefaults` rather than a
+    /// file: it is this front end's own state, like `diffTool`. Both sheets
+    /// write it on every edit, which is what covers a quit or a crash too.
+    public var promptDraft: String {
+        get { drafts.string(forKey: Self.promptDraftKey) ?? "" }
+        set {
+            if newValue.trimmed.isEmpty { drafts.removeObject(forKey: Self.promptDraftKey) }
+            else { drafts.set(newValue, forKey: Self.promptDraftKey) }
+        }
+    }
+
+    static let promptDraftKey = "newSessionPromptDraft"
 
     /// The project changed: its agent defaults and base branch replace the form's.
     public func applyProject(to form: inout NewSessionForm) {
@@ -1780,6 +1821,8 @@ public final class AppState {
                                 thinking: form.thinking, prompt: form.prompt,
                                 autoSubmit: form.autoSubmit,
                                 dangerous: config?.projects[form.project]?.promptAgent == true ? form.dangerous : nil)
+        // Before the call, not after: a core that hangs never answers at all.
+        promptDraft = form.prompt
         // Not `mutate`: that discards the created `Session`, and selecting it
         // needs the id `createSession` hands back.
         Task {
@@ -1790,6 +1833,9 @@ public final class AppState {
                     try client.createSession(req)
                 }
                 if !hint.isEmpty { sessionHints[session.id] = hint }
+                // Only if it is still this prompt: a second sheet may have
+                // started another one while this create ran.
+                if promptDraft == form.prompt { promptDraft = "" }
                 await refresh()
                 // Always on the phone, by decision: there is no control for it
                 // there, and a Mac's choice is not the phone's (it is per
@@ -1801,7 +1847,9 @@ public final class AppState {
                 #endif
                 if autoFocus && focus() { selectedSessionID = session.id }
             } catch {
-                failed("Creating session", error)
+                // Not `failed`: the front end reopens the sheet with this
+                // instead of an alert, and falls back to one only when it can't.
+                failedCreate = FailedCreate(form: form, error: error.localizedDescription)
             }
         }
     }
@@ -2386,6 +2434,69 @@ extension AppState {
         assert(FakeCore.spin { app.actionError != nil })
         assert(app.actionError == "Delete failed: worktree is locked", app.actionError ?? "")
         assert(!app.connection.isDown)
+
+        // MARK: Create
+
+        // A refused create keeps the whole form and the core's words, and the
+        // prompt draft outlives the sheet and the app. Its own defaults suite:
+        // this must not touch a real draft.
+        let suite = "moomux-selftest-\(getpid())"
+        let drafts = UserDefaults(suiteName: suite)!
+        defer { drafts.removePersistentDomain(forName: suite) }
+        let creator = AppState(client: MoomuxClient(socketPath: core.path), drafts: drafts)
+        assert(creator.openNewSessionForm(project: "p").0.prompt.isEmpty)
+        var sent = creator.openNewSessionForm(project: "p").0
+        sent.agent = "claude"
+        sent.prompt = "A long prompt\nthat must survive."
+        sent.baseBranch = "nope"
+        func refuse(_ reason: String) {
+            core.on("CreateSession") { try? $0.write(Data(#"{"err":"\#(reason)"}"#.utf8)) }
+        }
+        let refusals = [
+            // The base branch typed into the form, and a project's stale one.
+            "base branch nope does not exist: fix the base branch field, or clear it to use the project's main",
+            "base branch gone does not exist: set a base branch that still exists in the project's settings",
+            "worktree folder /w/x already exists",
+            "branch alan/missing does not exist",
+        ]
+        for reason in refusals {
+            refuse(reason)
+            creator.create(sent)
+            assert(creator.promptDraft == sent.prompt, "the draft is saved before the call")
+            assert(FakeCore.spin { creator.failedCreate != nil }, "no refusal for \(reason)")
+            let (back, error) = creator.openNewSessionForm(project: "elsewhere")
+            assert(back == sent, "a refused create must give back the form as sent")
+            assert(error == reason, "the core's words, verbatim: \(error ?? "nil")")
+            assert(creator.failedCreate == nil, "taken once")
+            assert(NewSessionForm.blamesBaseBranchField(reason) == (reason == refusals[0]))
+            assert(creator.actionError == nil, "the sheet says it, not an alert")
+        }
+        assert(core.log.last?.contains(#""BaseBranch":"nope""#) == true, "an edited base branch is sent")
+        // A core that hangs up mid-create, and one that is not there at all.
+        core.on("CreateSession") { _ in }
+        creator.create(sent)
+        assert(FakeCore.spin { creator.failedCreate != nil })
+        assert(creator.failedCreate?.error == MoomuxClient.Failure.emptyResponse.errorDescription)
+        assert(creator.failedCreate?.form == sent)
+        creator.failedCreate = nil
+        let orphan = AppState(client: MoomuxClient(socketPath: "/tmp/mmx-nobody-\(getpid()).sock"), drafts: drafts)
+        orphan.create(sent)
+        assert(FakeCore.spin { orphan.failedCreate != nil }, "an unreachable core must still give the form back")
+        assert(orphan.failedCreate?.form == sent)
+        // The draft outlives the app: a fresh store over the same defaults has it.
+        assert(AppState(client: creator.client, drafts: drafts).openNewSessionForm(project: "p").0.prompt
+               == sent.prompt)
+        // Success clears it — unless another sheet has since typed a new one.
+        core.on("CreateSession") {
+            try? $0.write(Data(#"{"result":{"session":{"id":"p:n","name":"n","project":"p"}}}"#.utf8))
+        }
+        creator.create(sent)
+        creator.promptDraft = "the next one"
+        assert(FakeCore.spin { core.count("CreateSession") == refusals.count + 2 && creator.busy == nil })
+        assert(creator.promptDraft == "the next one", "a newer draft must survive an older create")
+        creator.create(sent)
+        assert(FakeCore.spin { creator.promptDraft.isEmpty && creator.busy == nil }, "a success clears its draft")
+        assert(creator.failedCreate == nil)
 
         // MARK: Watch
 

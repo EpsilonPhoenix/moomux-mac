@@ -123,8 +123,11 @@ public struct NewSessionForm: Equatable, Sendable {
         prompt += lead + path + " "
     }
 
-    /// Only a new branch is cut from the base, so a resume sends none.
-    public var baseBranchToSend: String { existingBranch.isEmpty ? baseBranch : "" }
+    /// Only a new branch is cut from the base, so a resume sends none. Nor
+    /// does an untouched field: empty means the project's own, which the core
+    /// reads fresh — and when that one has gone stale, its refusal then says
+    /// to fix the project's settings rather than this field.
+    public var baseBranchToSend: String { existingBranch.isEmpty && baseBranchEdited ? baseBranch : "" }
 
     /// Keeps the model and thinking selections valid after the agent changes:
     /// the lists differ per agent, and a stale selection would be sent as a
@@ -142,6 +145,13 @@ public struct NewSessionForm: Equatable, Sendable {
     /// so a future agent without models needs no change.
     public func modelToSend(hasModelList: Bool) -> String {
         hasModelList ? model : modelText
+    }
+
+    /// The core's refusal names the base branch the form sent, rather than the
+    /// project's stale one (`baseBranchToSend` sends none for that). Matches
+    /// the core's wording since moomux#329; an older core gets no highlight.
+    public static func blamesBaseBranchField(_ error: String) -> Bool {
+        error.contains("fix the base branch field")
     }
 
     /// Every field but the project is optional: an empty name is the core's
@@ -208,10 +218,11 @@ public struct NewSessionForm: Equatable, Sendable {
         var base = NewSessionForm()
         base.seedBaseBranch(Project(repo: "/a", baseBranch: "main"))
         assert(base.baseBranch == "main" && !base.baseBranchEdited)
+        assert(base.baseBranchToSend.isEmpty, "the project's own goes unsent: the core reads it fresh")
         base.seedBaseBranch(Project(repo: "/b", baseBranch: "develop"))
         assert(base.baseBranch == "develop", "untouched, it follows the project")
         base.baseBranch = "release/2"
-        assert(base.baseBranchEdited)
+        assert(base.baseBranchEdited && base.baseBranchToSend == "release/2")
         base.seedBaseBranch(Project(repo: "/a", baseBranch: "main"))
         assert(base.baseBranch == "release/2", "a typed base branch survives a project switch")
         base.seedBaseBranch(Project(kind: "plain", repo: "/p", baseBranch: "main"))
