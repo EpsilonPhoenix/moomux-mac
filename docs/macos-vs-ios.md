@@ -636,7 +636,10 @@ exits.** Both build on `NewSessionForm` and the core's `AgentOptions`.
   and goes to the next unviewed one, the list shows the marks (swipe a row to toggle one), and a
   file the agent edits again comes back unviewed (`ViewedFiles`, memory only). The ⋯ menu finds
   across the whole change (DiffKit's `DiffFind`, "3 of 12" across files) and hides
-  whitespace-only edits.
+  whitespace-only edits. A markdown file can be shown rendered, before and after, Mermaid
+  diagrams included (DiffKit's `PatchMarkdownPreview`). "Before" comes from the core's
+  `ReadBaseFile` at the commit `Diff` answered, and "after" from `ReadFile` on the worktree.
+  The same worktree read lets the unchanged lines between hunks expand (`.patchFileText`).
 - **The Mac instead.** It keeps the tmux pager plus a GUI diff tool (⌘D, `ToolPath`, which does
   not exist on iOS). On a desk those beat any viewer the app could draw.
 

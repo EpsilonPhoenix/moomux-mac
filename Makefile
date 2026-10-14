@@ -435,6 +435,10 @@ $(IOS_APP): $(IOS_SOURCES) $(IOS_KIT_SOURCES) $(IOS_ASSETS) Resources/iOS-Info.p
 	@# looks first — so no GhosttyResourceBundle.warm() hook is needed here.
 	rm -rf $(IOS_APP)/GhosttyKit_GhosttyTerminal.bundle
 	cp -R $(IOS_PRODUCTS)/GhosttyKit_GhosttyTerminal.bundle $(IOS_APP)/
+	@# mermaid.js for DiffKit's rendered markdown. DiffKit looks in the app
+	@# root itself; without it every diagram silently falls back to code.
+	rm -rf $(IOS_APP)/DiffKit_DiffKit.bundle
+	cp -R $(IOS_PRODUCTS)/DiffKit_DiffKit.bundle $(IOS_APP)/
 	@# Release notes, as for the Mac bundle: only when WHATS_NEW names them.
 	rm -f $(IOS_APP)/WhatsNew.md
 	if [ -n "$(WHATS_NEW)" ]; then cp "$(WHATS_NEW)" $(IOS_APP)/WhatsNew.md; fi

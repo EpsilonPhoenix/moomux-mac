@@ -140,6 +140,9 @@ public final class MoomuxClient: Sendable {
         /// `ResizeAttach`: which live attach to resize — the token its `Attach`
         /// answered with.
         var attach: String?
+        /// `ReadBaseFile`: the commit `Diff` answered, so "before" is read from
+        /// the same base as the patch even if the base branch has moved since.
+        var commit: String?
 
         // Every `ipc.Args` key this app sends already matches its property
         // name. A missing entry here would be invisible in both directions —
@@ -149,7 +152,7 @@ public final class MoomuxClient: Sendable {
             case newName = "new_name"
             case project
             case cols, rows
-            case data, path, attach
+            case data, path, attach, commit
         }
     }
 
@@ -194,7 +197,7 @@ public final class MoomuxClient: Sendable {
         var commits: Int?
         /// `SaveFile`: where the upload landed; `ReadFile`: the path it resolved to.
         var path: String?
-        /// `ReadFile`'s contents, base64 on the wire.
+        /// `ReadFile`'s and `ReadBaseFile`'s contents, base64 on the wire.
         var data: Data?
         /// `Diff`: raw `git diff` text, `diff --git` headers included, and
         /// whether the core cut it at a file boundary to stay under its cap.
@@ -203,6 +206,8 @@ public final class MoomuxClient: Sendable {
         /// `Diff`: the ref the patch was taken against — "HEAD" when no base
         /// branch shares history with the session's, so uncommitted work only.
         var base: String?
+        /// `Diff`: the commit the patch was taken against, for `ReadBaseFile`.
+        var commit: String?
         /// `GhosttyConfig`: the core machine's Ghostty config, concatenated in
         /// ghostty's own load order, and the files it came from.
         var ghostty: ServedGhostty?
@@ -213,7 +218,7 @@ public final class MoomuxClient: Sendable {
 
         enum CodingKeys: String, CodingKey {
             case session, sessions, cfg, agents, themes, hint, ok, dirty, unpushed, files, commits, path, data
-            case patch, truncated, base, attach, ghostty
+            case patch, truncated, base, commit, attach, ghostty
             case screens
             case projectEmoji = "project_emoji"
         }
@@ -412,7 +417,7 @@ public final class MoomuxClient: Sendable {
     /// The session's changes against its merge base, untracked files included —
     /// what `Review` shows in tmux, as text. Needs no tmux, so a parked session
     /// answers too. nil when the worktree is not a git repo (`ok=false`).
-    public func diff(id: String) throws -> (patch: String, base: String, truncated: Bool)? {
+    public func diff(id: String) throws -> (patch: String, base: String, commit: String, truncated: Bool)? {
         let result: CallResult
         do {
             result = try call("Diff", Args(id: id))
@@ -421,7 +426,23 @@ public final class MoomuxClient: Sendable {
         }
         guard result.ok == true else { return nil }
         // Every field is `omitempty`: no `patch` is a clean worktree.
-        return (result.patch ?? "", result.base ?? "", result.truncated ?? false)
+        return (result.patch ?? "", result.base ?? "", result.commit ?? "", result.truncated ?? false)
+    }
+
+    /// A repo-relative path as it was at `Diff`'s base — the "before" side of
+    /// a file, where `readFile` is the "after". Pass `Diff`'s `commit`; empty
+    /// makes the core resolve the base again, which can have moved. nil is a
+    /// file the base does not have (new or untracked), not an error.
+    public func readBaseFile(id: String, path: String, commit: String) throws -> Data? {
+        let result: CallResult
+        do {
+            result = try call("ReadBaseFile", Args(id: id, path: path, commit: commit.isEmpty ? nil : commit))
+        } catch let Failure.server(message) where message.hasPrefix("unknown method") {
+            throw Failure.server("this moomux core is too old to show a file before and after — upgrade it")
+        }
+        // `ok` and not `data`: an empty file has no `data` key either.
+        guard result.ok == true else { return nil }
+        return result.data ?? Data()
     }
 
     /// Opens the review window in the session's tmux, reusing an existing one.
@@ -852,9 +873,20 @@ public final class MoomuxClient: Sendable {
             check(try client.capture(ids: ["a", "b"]) == ["a": "$ "])
         }
         expect(#"{"args":{"id":"s1"},"method":"Diff"}"#,
-               answer: #"{"result":{"ok":true,"patch":"diff --git","base":"main"}}"#) {
+               answer: #"{"result":{"ok":true,"patch":"diff --git","base":"main","commit":"abc"}}"#) {
             let diff = try client.diff(id: "s1")
-            assert(diff?.patch == "diff --git" && diff?.base == "main" && diff?.truncated == false)
+            assert(diff?.patch == "diff --git" && diff?.base == "main" && diff?.commit == "abc"
+                   && diff?.truncated == false)
+        }
+        expect(#"{"args":{"commit":"abc","id":"s1","path":"a.md"},"method":"ReadBaseFile"}"#,
+               answer: #"{"result":{"ok":true,"commit":"abc"}}"#) {
+            check(try client.readBaseFile(id: "s1", path: "a.md", commit: "abc") == Data(),
+                  "ok with no data is an empty file")
+        }
+        expect(#"{"args":{"id":"s1","path":"a.md"},"method":"ReadBaseFile"}"#,
+               answer: #"{"result":{"commit":"abc"}}"#) {
+            check(try client.readBaseFile(id: "s1", path: "a.md", commit: "") == nil,
+                  "ok=false is a new file, not an error")
         }
         expect(#"{"args":{"id":"s1"},"method":"Diff"}"#) {
             check(try client.diff(id: "s1") == nil, "ok=false is a non-git worktree, not an empty diff")
@@ -962,7 +994,8 @@ public final class MoomuxClient: Sendable {
         for (method, call) in [("SaveFile", { _ = try client.saveFile(name: "a", data: Data()) }),
                                ("ReadFile", { _ = try client.readFile(id: "s", path: "a") }),
                                ("ResolveFile", { _ = try client.resolveFile(id: "s", path: "a") }),
-                               ("Diff", { _ = try client.diff(id: "s") })] as [(String, () throws -> Void)] {
+                               ("Diff", { _ = try client.diff(id: "s") }),
+                               ("ReadBaseFile", { _ = try client.readBaseFile(id: "s", path: "a", commit: "") })] as [(String, () throws -> Void)] {
             if case let .server(message)? = refused(#"{"err":"unknown method \"\#(method)\""}"#, call) {
                 assert(message.contains("too old"), message)
             } else { assertionFailure("\(method): unknown method must be reworded") }

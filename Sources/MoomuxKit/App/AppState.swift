@@ -15,6 +15,8 @@ public struct SessionDiff: Sendable {
     public var files: [FileChange]
     /// The ref the core diffed against; "HEAD" means uncommitted work only.
     public var base: String
+    /// The commit the patch was taken against, for `revisions(of:in:)`.
+    public var commit: String
     /// The core cut the patch at a file boundary to stay under its cap.
     public var truncated: Bool
 }
@@ -735,13 +737,37 @@ public final class AppState {
             let diff = try await withoutBlockingTheUI { [client] in
                 try client.diff(id: id).map {
                     SessionDiff(files: FileTree.fileOrder(for: DiffParser.files(fromGitDiff: $0.patch)),
-                                base: $0.base, truncated: $0.truncated)
+                                base: $0.base, commit: $0.commit, truncated: $0.truncated)
                 }
             }
             diffs[id] = .some(diff)
         } catch {
             failed("Loading the diff", error)
         }
+    }
+
+    /// One changed file whole on each side of the session's diff, for a
+    /// preview that renders the document rather than the patch; nil for the
+    /// side a new or deleted file does not have. "Before" is read at the
+    /// commit the loaded patch was taken against, so the two cannot disagree.
+    public func revisions(of file: FileChange, in id: Session.ID) async throws -> (before: String?, after: String?) {
+        let commit = (diffs[id] ?? nil)?.commit ?? ""
+        let path = file.previousPath ?? file.path
+        let before: Data? = if file.status == .added { nil } else {
+            try await withoutBlockingTheUI { [client] in try client.readBaseFile(id: id, path: path, commit: commit) }
+        }
+        let after: String? = if file.status == .removed { nil } else { try await worktreeFile(file.path, in: id) }
+        return (before.map { String(decoding: $0, as: UTF8.self) }, after)
+    }
+
+    /// A file's text as it is in the worktree now — the diff's new side.
+    /// Absolute, because `ReadFile` tries a relative path against the pane's
+    /// directory first, where the same relative name can be another file.
+    public func worktreeFile(_ path: String, in id: Session.ID) async throws -> String? {
+        guard let root = session(id: id)?.worktreePath, !root.isEmpty else { return nil }
+        let full = (root as NSString).appendingPathComponent(path)
+        let data = try await withoutBlockingTheUI { [client] in try client.readFile(id: id, path: full).data }
+        return String(decoding: data, as: UTF8.self)
     }
 
     /// Sessions the user should look at. The menu bar's whole reason to exist.
