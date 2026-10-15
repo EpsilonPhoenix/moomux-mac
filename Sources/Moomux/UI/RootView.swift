@@ -1475,7 +1475,8 @@ struct MenuBarContent: View {
                     let state = app.state(for: session)
                     HStack {
                         Image(systemName: state.symbol).foregroundStyle(Theme.color(state, app.palette))
-                        Text("\(session.project) · \(session.name)")
+                        // The project name only when there is no emoji to stand in for it (a core too old to send one).
+                        Text(app.emoji(for: session.project).map { "\($0) \(session.name)" } ?? "\(session.project) · \(session.name)")
                         Spacer()
                         Text(app.label(for: session)).foregroundStyle(.secondary)
                     }
