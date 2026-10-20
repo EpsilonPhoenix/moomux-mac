@@ -690,28 +690,6 @@ struct SessionDetailView: View {
                 }
             }
 
-            if WebLink.url(session.ticket) != nil || WebLink.url(session.pr) != nil {
-                Section {
-                    if let url = WebLink.url(session.ticket) {
-                        Link(destination: url) { Label("Ticket", systemImage: "ticket") }
-                    }
-                    if let url = WebLink.url(session.pr) {
-                        Link(destination: url) {
-                            Label("Pull request", systemImage: "arrow.triangle.pull")
-                        }
-                    }
-                    // Hidden without MergeRight installed, where the scheme
-                    // opens nothing (`canOpenURL` needs the scheme listed in
-                    // LSApplicationQueriesSchemes).
-                    if let link = app.mergeRightLink(for: session),
-                       UIApplication.shared.canOpenURL(link) {
-                        Link(destination: link) {
-                            Label("Open in MergeRight", systemImage: "arrow.up.forward.app")
-                        }
-                    }
-                }
-            }
-
             if let pr = app.views[session.id]?.pr {
                 Section("Pull request") {
                     LabeledContent("State", value: pr.state)
@@ -740,16 +718,14 @@ struct SessionDetailView: View {
                     Label("Kill tmux", systemImage: "stop.circle")
                 }
                 .disabled(!app.isAlive(session))
-                Button(role: .destructive) {
-                    app.askDelete(session)
-                } label: {
-                    Label("Delete Session", systemImage: "trash")
-                }
             }
         }
         .labelStyle(RowLabel())
         .navigationTitle(session.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { actionsMenu(session) }
+        }
         // One alert, and the information *is* the safeguard — the Mac asks
         // once too, because a second "are you sure" is a reflex while the
         // dirty/unpushed lines are not. `askDelete` re-fetches the worktree
@@ -816,6 +792,48 @@ struct SessionDetailView: View {
 }
 
 extension SessionDetailView {
+    /// The links, Archive and Delete, in the toolbar so they are reachable
+    /// without scrolling past the PR and the first prompt. Delete only raises
+    /// the screen's own alert.
+    fileprivate func actionsMenu(_ session: Session) -> some View {
+        Menu {
+            Section {
+                if let url = WebLink.url(session.ticket) {
+                    Link(destination: url) { Label("Ticket", systemImage: "ticket") }
+                }
+                if let url = WebLink.url(session.pr) {
+                    Link(destination: url) {
+                        Label("Pull request", systemImage: "arrow.triangle.pull")
+                    }
+                }
+                // Hidden without MergeRight installed, where the scheme
+                // opens nothing (`canOpenURL` needs the scheme listed in
+                // LSApplicationQueriesSchemes).
+                if let link = app.mergeRightLink(for: session),
+                   UIApplication.shared.canOpenURL(link) {
+                    Link(destination: link) {
+                        Label("Open in MergeRight", systemImage: "arrow.up.forward.app")
+                    }
+                }
+            }
+            Button {
+                app.setArchived(session, !session.archived)
+            } label: {
+                Label(session.archived ? "Unarchive" : "Archive", systemImage: "archivebox")
+            }
+            Section {
+                Button(role: .destructive) {
+                    app.askDelete(session)
+                } label: {
+                    Label("Delete Session", systemImage: "trash")
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .accessibilityLabel("More")
+    }
+
     /// The Mac row's Folder submenu: none, every folder, or a new one. Here
     /// rather than on the row, because the row's long press is its drag.
     @ViewBuilder
