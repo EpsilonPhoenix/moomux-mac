@@ -791,43 +791,53 @@ struct SessionDetailView: View {
     }
 }
 
+/// The ⋯ menu items shared by the detail screen and the attached pane: the
+/// links, Archive and Delete. `delete` only raises the host screen's alert.
+struct SessionActions: View {
+    let app: AppState
+    let session: Session
+    let delete: () -> Void
+
+    var body: some View {
+        Section {
+            if let url = WebLink.url(session.ticket) {
+                Link(destination: url) { Label("Ticket", systemImage: "ticket") }
+            }
+            if let url = WebLink.url(session.pr) {
+                Link(destination: url) {
+                    Label("Pull request", systemImage: "arrow.triangle.pull")
+                }
+            }
+            // Hidden without MergeRight installed, where the scheme
+            // opens nothing (`canOpenURL` needs the scheme listed in
+            // LSApplicationQueriesSchemes).
+            if let link = app.mergeRightLink(for: session),
+               UIApplication.shared.canOpenURL(link) {
+                Link(destination: link) {
+                    Label("Open in MergeRight", systemImage: "arrow.up.forward.app")
+                }
+            }
+        }
+        Button {
+            app.setArchived(session, !session.archived)
+        } label: {
+            Label(session.archived ? "Unarchive" : "Archive", systemImage: "archivebox")
+        }
+        Section {
+            Button(role: .destructive, action: delete) {
+                Label("Delete Session", systemImage: "trash")
+            }
+        }
+    }
+}
+
 extension SessionDetailView {
     /// The links, Archive and Delete, in the toolbar so they are reachable
     /// without scrolling past the PR and the first prompt. Delete only raises
     /// the screen's own alert.
     fileprivate func actionsMenu(_ session: Session) -> some View {
         Menu {
-            Section {
-                if let url = WebLink.url(session.ticket) {
-                    Link(destination: url) { Label("Ticket", systemImage: "ticket") }
-                }
-                if let url = WebLink.url(session.pr) {
-                    Link(destination: url) {
-                        Label("Pull request", systemImage: "arrow.triangle.pull")
-                    }
-                }
-                // Hidden without MergeRight installed, where the scheme
-                // opens nothing (`canOpenURL` needs the scheme listed in
-                // LSApplicationQueriesSchemes).
-                if let link = app.mergeRightLink(for: session),
-                   UIApplication.shared.canOpenURL(link) {
-                    Link(destination: link) {
-                        Label("Open in MergeRight", systemImage: "arrow.up.forward.app")
-                    }
-                }
-            }
-            Button {
-                app.setArchived(session, !session.archived)
-            } label: {
-                Label(session.archived ? "Unarchive" : "Archive", systemImage: "archivebox")
-            }
-            Section {
-                Button(role: .destructive) {
-                    app.askDelete(session)
-                } label: {
-                    Label("Delete Session", systemImage: "trash")
-                }
-            }
+            SessionActions(app: app, session: session) { app.askDelete(session) }
         } label: {
             Image(systemName: "ellipsis.circle")
         }

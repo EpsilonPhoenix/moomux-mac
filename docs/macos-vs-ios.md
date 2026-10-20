@@ -584,14 +584,14 @@ different widths.
 | | Mac | iPhone |
 |---|---|---|
 | Attach | select / double-click / ⌘↩ | tap |
-| Archive / Unarchive | ⌘E, context menu | trailing swipe, detail ⋯ |
+| Archive / Unarchive | ⌘E, context menu | trailing swipe, detail ⋯, pane ⋯ |
 | Details | inspector ⌘I | trailing swipe; ⋯ in the pane |
 | Review | ⌘G, context menu, detail | leading swipe, detail |
 | View changes (native diff) | none (D46) | leading swipe, pane toolbar, detail |
 | File into a folder | context menu → Folder, drag | drag onto a folder header |
 | Rename | Edit… ⇧⌘R (with agent) | detail → Rename… (name only) |
 | Tags | ⌘T, context menu | detail → Tags… |
-| Delete | ⌘⌫, context menu | detail ⋯ |
+| Delete | ⌘⌫, context menu | detail ⋯, pane ⋯ |
 | Kill tmux | ⇧⌘K, context menu (not confirmed) | detail (confirmed) |
 | New Folder | project header, row → Folder | detail → Folder → New Folder… |
 | Diff tool, Copy Path, Move Up/Down | yes | none, deliberately |

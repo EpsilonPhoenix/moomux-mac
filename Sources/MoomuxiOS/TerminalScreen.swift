@@ -36,6 +36,10 @@ struct TerminalScreen: View {
     @State private var pickingPhotos = false
     @State private var importingFiles = false
     @State private var attachments = AttachQueue()
+    /// Delete was asked from this screen's menu. The detail screen binds the
+    /// same `pendingDelete` and sits above this one when open, so without
+    /// this both would raise the alert.
+    @State private var deleting = false
 
     /// A tapped file, fetched from the core and shown in Quick Look — which
     /// already does images, PDFs, text and code, with zoom and a share sheet.
@@ -135,6 +139,12 @@ struct TerminalScreen: View {
                             }
                         }
                         .disabled(attachments.pending > 0)
+                        if let session = app.session(id: sessionID) {
+                            SessionActions(app: app, session: session) {
+                                deleting = true
+                                app.askDelete(session)
+                            }
+                        }
                     } label: {
                         // A spinner while a batch uploads, but still a menu:
                         // Details must not wait on a photo.
@@ -165,6 +175,18 @@ struct TerminalScreen: View {
                 Button("OK") {}
             } message: {
                 Text(attachments.error ?? "")
+            }
+            .alert("Delete \(app.session(id: sessionID)?.name ?? "session")?", isPresented: Binding(
+                get: { deleting && app.pendingDelete?.id == sessionID },
+                set: { if !$0 { deleting = false; app.dismissDelete() } }
+            )) {
+                Button("Cancel", role: .cancel) { app.dismissDelete() }
+                Button("Delete", role: .destructive) {
+                    if let session = app.session(id: sessionID) { app.delete(session) }
+                    dismiss()
+                }
+            } message: {
+                Text(app.session(id: sessionID).map(app.deleteWarning(for:)) ?? "")
             }
             // No `onDisappear` cancel, unlike the sheet: pushing the info
             // screen disappears this one too, and would drop a batch mid-way.
