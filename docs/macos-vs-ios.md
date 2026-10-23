@@ -595,7 +595,12 @@ different widths.
 | Kill tmux | ⇧⌘K, context menu (not confirmed) | detail, pane ⋯ (confirmed) |
 | New Folder | project header, row → Folder | detail, pane ⋯ → Folder → New Folder… |
 | Diff tool, Copy Path, Move Up/Down | yes | none, deliberately |
+| Ticket, Pull request, Open in MergeRight | inspector, context menu | detail, pane ⋯ |
 | Folder header menu | Rename, Archive All, Unarchive All, Delete | the same (long press) |
+
+The Mac row's context menu and the phone's session actions (detail, pane ⋯) run in one order:
+links; Folder, Archive, Edit/Rename, Tags; then Kill tmux and Delete. The Mac's own tools (Review,
+diff tool, Copy Path, Move Up/Down) sit between the last two groups.
 
 Kill tmux is confirmed on the phone and not on the Mac, because a phone row is a bigger target for
 a mis-tap and this stops an agent mid-thought. On the phone it takes the session's pane out of the

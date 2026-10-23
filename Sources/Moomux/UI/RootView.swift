@@ -1006,25 +1006,21 @@ private struct SessionRow: View {
         })
         // Closes over `session`, never over the selection: right-clicking an
         // unselected row has to act on the row you clicked.
+        //
+        // The iPhone's session menu order (`SessionActions`): links, then
+        // filing and naming, then what ends the session. The Mac-only tools
+        // sit between the last two.
         .contextMenu {
-            Button("Review Changes") { app.review(session) }
-                .disabled(!app.canReview(session))
-            Button("Open in Diff Tool") { app.openDiffTool(session) }
-                .disabled(!app.canOpenDiffTool(session))
-            Button("Edit…") { app.sheet = .edit(session) }
-            Button("Tags…") { app.sheet = .tags(session) }
-            if let link = app.installedMergeRightLink(for: session) {
-                Button("Open in MergeRight") { NSWorkspace.shared.open(link) }
+            // Only a value the inspector would make a link (`Field`) appears.
+            let ticket = session.ticket.flatMap { TerminalLink.resolve($0) != nil ? $0 : nil }
+            let pr = session.pr.flatMap { TerminalLink.resolve($0) != nil ? $0 : nil }
+            let mergeRight = app.installedMergeRightLink(for: session)
+            if let ticket { Button("Ticket") { app.openTag(ticket) } }
+            if let pr { Button("Pull Request") { app.openTag(pr) } }
+            if let mergeRight {
+                Button("Open in MergeRight") { NSWorkspace.shared.open(mergeRight) }
             }
-            Button("Copy Path") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(session.worktreePath, forType: .string)
-            }
-            .disabled(session.worktreePath.isEmpty)
-            Divider()
-            Button(session.archived ? "Unarchive" : "Archive") {
-                app.setArchived(session, !session.archived)
-            }
+            if ticket != nil || pr != nil || mergeRight != nil { Divider() }
             Menu("Folder") {
                 Button("None") { app.setFolder(session, to: "") }
                     .disabled(session.folder.isEmpty)
@@ -1039,6 +1035,21 @@ private struct SessionRow: View {
                     app.sheet = .newFolder(assign: session)
                 }
             }
+            Button(session.archived ? "Unarchive" : "Archive") {
+                app.setArchived(session, !session.archived)
+            }
+            Button("Edit…") { app.sheet = .edit(session) }
+            Button("Tags…") { app.sheet = .tags(session) }
+            Divider()
+            Button("Open in Diff Tool") { app.openDiffTool(session) }
+                .disabled(!app.canOpenDiffTool(session))
+            Button("Review Changes") { app.review(session) }
+                .disabled(!app.canReview(session))
+            Button("Copy Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(session.worktreePath, forType: .string)
+            }
+            .disabled(session.worktreePath.isEmpty)
             Button("Move Up") { app.move(session, by: -1) }
                 .disabled(!app.canReorder)
             Button("Move Down") { app.move(session, by: 1) }
