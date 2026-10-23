@@ -584,13 +584,7 @@ struct SessionDetailView: View {
     /// Deleting a session removes the screen's subject, so it leaves too.
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingKill = false
-    @State private var namingFolder = false
-    @State private var folderName = ""
-    @State private var renaming = false
-    @State private var newName = ""
-    @State private var tagging = false
-    @State private var ticket = ""
-    @State private var pr = ""
+    @State private var edit: SessionEdit?
 
     var body: some View {
         if let session = app.session(id: sessionID) {
@@ -667,20 +661,6 @@ struct SessionDetailView: View {
                     Label("Review Changes", systemImage: "plus.forwardslash.minus")
                 }
                 .disabled(!app.canReview(session))
-                Button {
-                    newName = session.name
-                    renaming = true
-                } label: {
-                    Label("Rename…", systemImage: "pencil")
-                }
-                Button {
-                    ticket = session.ticket ?? ""
-                    pr = session.pr ?? ""
-                    tagging = true
-                } label: {
-                    Label("Tags…", systemImage: "ticket")
-                }
-                folderMenu(session)
             } footer: {
                 // Why it is greyed, rather than leaving the user to guess. The
                 // core refuses a parked session by name rather than reviving
@@ -709,23 +689,16 @@ struct SessionDetailView: View {
                 Section("First prompt") { Text(prompt).font(.callout).textSelection(.enabled) }
             }
 
-            Section {
-                // Stopping a runaway agent is a check-in job. The worktree,
-                // branch and record stay, and Attach starts it again.
-                Button(role: .destructive) {
-                    confirmingKill = true
-                } label: {
-                    Label("Kill tmux", systemImage: "stop.circle")
-                }
-                .disabled(!app.isAlive(session))
-            }
+            // Rows here, not a toolbar ⋯: reached from a pane, that pane's ⋯
+            // already holds them, and a parked session must be deletable
+            // without attaching.
+            SessionActions(app: app, session: session, edit: $edit,
+                           kill: { confirmingKill = true },
+                           delete: { app.askDelete(session) })
         }
         .labelStyle(RowLabel())
         .navigationTitle(session.name)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { actionsMenu(session) }
-        }
         // One alert, and the information *is* the safeguard — the Mac asks
         // once too, because a second "are you sure" is a reflex while the
         // dirty/unpushed lines are not. `askDelete` re-fetches the worktree
@@ -743,20 +716,7 @@ struct SessionDetailView: View {
         } message: {
             Text(app.deleteWarning(for: session))
         }
-        .alert("Rename session", isPresented: $renaming) {
-            TextField("Name", text: $newName)
-                .textInputAutocapitalization(.never)
-            Button("Cancel", role: .cancel) {}
-            Button("Rename") {
-                let name = newName.trimmed
-                guard !name.isEmpty, name != session.name else { return }
-                // The whole edit in one call, as the Mac does it: the rename
-                // no-ops when unchanged, and the agent is passed back verbatim
-                // rather than defaulted, since nothing here is changing it.
-                app.edit(session, name: name,
-                         agent: session.agentName, dangerous: session.dangerous)
-            }
-        }
+        .sessionEditing(app: app, session: session, edit: $edit)
         // Confirmed here, unlike the Mac: a phone row is a bigger target for a
         // mis-tap, and this stops an agent mid-thought.
         .confirmationDialog("Stop \(session.name)'s agent?", isPresented: $confirmingKill,
@@ -768,107 +728,182 @@ struct SessionDetailView: View {
         } message: {
             Text("Its tmux session ends. The worktree and branch stay, and Attach starts it again.")
         }
-        .alert("New folder", isPresented: $namingFolder) {
-            TextField("Name", text: $folderName)
-                .textInputAutocapitalization(.never)
-            Button("Cancel", role: .cancel) {}
-            Button("Create") {
-                // Filing into a name that does not exist yet is the create —
-                // `SetSessionFolder` makes the folder on first use, as on the Mac.
-                let name = folderName.trimmed
-                if !name.isEmpty { app.setFolder(session, to: name) }
-            }
-        } message: {
-            Text("Files \(session.name) in it. Folders are shared across projects.")
-        }
-        .alert("Tags", isPresented: $tagging) {
-            TextField("Ticket URL", text: $ticket).textInputAutocapitalization(.never)
-            TextField("PR URL", text: $pr).textInputAutocapitalization(.never)
-            Button("Cancel", role: .cancel) {}
-            Button("Save") { app.setTags(session, ticket: ticket.trimmed, pr: pr.trimmed) }
-        }
         .task { await app.loadStatus(for: session.id) }
     }
 }
 
-/// The ⋯ menu items shared by the detail screen and the attached pane: the
-/// links, Archive and Delete. `delete` only raises the host screen's alert.
+/// The links, Folder, Archive, Rename, Tags, Kill tmux and Delete: rows on the
+/// detail screen, items in the attached pane's ⋯. Rename, Tags, New Folder,
+/// Kill and Delete only raise the host screen's alerts (`sessionEditing` for
+/// the first three).
 struct SessionActions: View {
     let app: AppState
     let session: Session
+    @Binding var edit: SessionEdit?
+    /// In the pane's ⋯ rather than detail's list: the links share one row,
+    /// as do Rename and Tags, or the menu outgrows the screen and scrolls;
+    /// and Folder has no room to show the current folder.
+    var inMenu = false
+    let kill: () -> Void
     let delete: () -> Void
 
     var body: some View {
-        Section {
-            if let url = WebLink.url(session.ticket) {
-                Link(destination: url) { Label("Ticket", systemImage: "ticket") }
-            }
-            if let url = WebLink.url(session.pr) {
-                Link(destination: url) {
-                    Label("Pull request", systemImage: "arrow.triangle.pull")
-                }
-            }
-            // Hidden without MergeRight installed, where the scheme
-            // opens nothing (`canOpenURL` needs the scheme listed in
-            // LSApplicationQueriesSchemes).
-            if let link = app.mergeRightLink(for: session),
-               UIApplication.shared.canOpenURL(link) {
-                Link(destination: link) {
-                    Label("Open in MergeRight", systemImage: "arrow.up.forward.app")
-                }
-            }
-        }
-        Button {
-            app.setArchived(session, !session.archived)
-        } label: {
-            Label(session.archived ? "Unarchive" : "Archive", systemImage: "archivebox")
+        if inMenu {
+            ControlGroup { links }
+        } else {
+            Section { links }
         }
         Section {
+            // The Mac row's Folder submenu: none, every folder, or a new one.
+            // Not on the list row, because the row's long press is its drag.
+            Menu {
+                Button("None") { app.setFolder(session, to: "") }
+                    .disabled(session.folder.isEmpty)
+                let folders = app.folderNames
+                if !folders.isEmpty { Divider() }
+                ForEach(folders, id: \.self) { name in
+                    Button(name) { app.setFolder(session, to: name) }
+                        .disabled(name == session.folder)
+                }
+                Divider()
+                Button("New Folder…") { edit = SessionEdit(kind: .newFolder) }
+            } label: {
+                if inMenu {
+                    Label("Folder", systemImage: "folder")
+                } else {
+                    LabeledContent {
+                        Text(session.folder.isEmpty ? "None" : session.folder)
+                    } label: {
+                        Label("Folder", systemImage: "folder")
+                    }
+                }
+            }
+            Button {
+                app.setArchived(session, !session.archived)
+            } label: {
+                Label(session.archived ? "Unarchive" : "Archive", systemImage: "archivebox")
+            }
+            if inMenu {
+                ControlGroup { edits }
+            } else {
+                edits
+            }
+        }
+        Section {
+            // Stopping a runaway agent is a check-in job. The worktree,
+            // branch and record stay, and Attach starts it again.
+            Button(role: .destructive, action: kill) {
+                Label("Kill tmux", systemImage: "stop.circle")
+            }
+            .disabled(!app.isAlive(session))
             Button(role: .destructive, action: delete) {
                 Label("Delete Session", systemImage: "trash")
             }
         }
     }
-}
 
-extension SessionDetailView {
-    /// The links, Archive and Delete, in the toolbar so they are reachable
-    /// without scrolling past the PR and the first prompt. Delete only raises
-    /// the screen's own alert.
-    fileprivate func actionsMenu(_ session: Session) -> some View {
-        Menu {
-            SessionActions(app: app, session: session) { app.askDelete(session) }
+    @ViewBuilder
+    private var edits: some View {
+        Button {
+            edit = SessionEdit(kind: .rename, text: session.name)
         } label: {
-            Image(systemName: "ellipsis.circle")
+            Label(inMenu ? "Rename" : "Rename…", systemImage: "pencil")
         }
-        .accessibilityLabel("More")
+        Button {
+            edit = SessionEdit(kind: .tags, text: session.ticket ?? "", pr: session.pr ?? "")
+        } label: {
+            Label(inMenu ? "Tags" : "Tags…", systemImage: "ticket")
+        }
     }
 
-    /// The Mac row's Folder submenu: none, every folder, or a new one. Here
-    /// rather than on the row, because the row's long press is its drag.
+    /// Short titles in the menu: a control group row fits three under icons.
     @ViewBuilder
-    fileprivate func folderMenu(_ session: Session) -> some View {
-        Menu {
-            Button("None") { app.setFolder(session, to: "") }
-                .disabled(session.folder.isEmpty)
-            let folders = app.folderNames
-            if !folders.isEmpty { Divider() }
-            ForEach(folders, id: \.self) { name in
-                Button(name) { app.setFolder(session, to: name) }
-                    .disabled(name == session.folder)
-            }
-            Divider()
-            Button("New Folder…") {
-                folderName = ""
-                namingFolder = true
-            }
-        } label: {
-            LabeledContent {
-                Text(session.folder.isEmpty ? "None" : session.folder)
-            } label: {
-                Label("Folder", systemImage: "folder")
+    private var links: some View {
+        if let url = WebLink.url(session.ticket) {
+            Link(destination: url) { Label("Ticket", systemImage: "ticket") }
+        }
+        if let url = WebLink.url(session.pr) {
+            Link(destination: url) {
+                Label(inMenu ? "PR" : "Pull request", systemImage: "arrow.triangle.pull")
             }
         }
+        // Hidden without MergeRight installed, where the scheme
+        // opens nothing (`canOpenURL` needs the scheme listed in
+        // LSApplicationQueriesSchemes).
+        if let link = app.mergeRightLink(for: session),
+           UIApplication.shared.canOpenURL(link) {
+            Link(destination: link) {
+                Label(inMenu ? "MergeRight" : "Open in MergeRight",
+                      systemImage: "arrow.up.forward.app")
+            }
+        }
+    }
+}
+
+/// A Rename…, Tags… or New Folder… in progress: which question, and the
+/// fields as typed so far. One optional, so only one alert can be up.
+struct SessionEdit: Equatable {
+    enum Kind { case rename, tags, newFolder }
+    var kind: Kind
+    var text = ""
+    var pr = ""
+    /// Dismissal clears this rather than the whole edit, so an alert button
+    /// reads what was typed whichever order SwiftUI runs the two in.
+    var shown = true
+}
+
+extension View {
+    /// The Rename, Tags and New Folder alerts behind `SessionActions`.
+    func sessionEditing(app: AppState, session: Session?,
+                        edit: Binding<SessionEdit?>) -> some View {
+        func showing(_ kind: SessionEdit.Kind) -> Binding<Bool> {
+            Binding(get: { edit.wrappedValue.map { $0.kind == kind && $0.shown } ?? false },
+                    set: { if !$0 { edit.wrappedValue?.shown = false } })
+        }
+        let text = Binding(get: { edit.wrappedValue?.text ?? "" },
+                           set: { edit.wrappedValue?.text = $0 })
+        let pr = Binding(get: { edit.wrappedValue?.pr ?? "" },
+                         set: { edit.wrappedValue?.pr = $0 })
+        let name = session?.name ?? "the session"
+        return self
+            .alert("Rename session", isPresented: showing(.rename)) {
+                TextField("Name", text: text)
+                    .textInputAutocapitalization(.never)
+                Button("Cancel", role: .cancel) {}
+                Button("Rename") {
+                    let name = text.wrappedValue.trimmed
+                    guard let session, !name.isEmpty, name != session.name else { return }
+                    // The whole edit in one call, as the Mac does it: the rename
+                    // no-ops when unchanged, and the agent is passed back verbatim
+                    // rather than defaulted, since nothing here is changing it.
+                    app.edit(session, name: name,
+                             agent: session.agentName, dangerous: session.dangerous)
+                }
+            }
+            .alert("New folder", isPresented: showing(.newFolder)) {
+                TextField("Name", text: text)
+                    .textInputAutocapitalization(.never)
+                Button("Cancel", role: .cancel) {}
+                Button("Create") {
+                    // Filing into a name that does not exist yet is the create —
+                    // `SetSessionFolder` makes the folder on first use, as on the Mac.
+                    let name = text.wrappedValue.trimmed
+                    if let session, !name.isEmpty { app.setFolder(session, to: name) }
+                }
+            } message: {
+                Text("Files \(name) in it. Folders are shared across projects.")
+            }
+            .alert("Tags", isPresented: showing(.tags)) {
+                TextField("Ticket URL", text: text).textInputAutocapitalization(.never)
+                TextField("PR URL", text: pr).textInputAutocapitalization(.never)
+                Button("Cancel", role: .cancel) {}
+                Button("Save") {
+                    if let session {
+                        app.setTags(session, ticket: text.wrappedValue.trimmed,
+                                    pr: pr.wrappedValue.trimmed)
+                    }
+                }
+            }
     }
 }
 
