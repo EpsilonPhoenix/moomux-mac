@@ -584,18 +584,23 @@ different widths.
 | | Mac | iPhone |
 |---|---|---|
 | Attach | select / double-click / ⌘↩ | tap |
-| Archive / Unarchive | ⌘E, context menu | trailing swipe, detail ⋯, pane ⋯ |
+| Archive / Unarchive | ⌘E, context menu | trailing swipe, detail, pane ⋯ |
 | Details | inspector ⌘I | trailing swipe; ⋯ in the pane |
 | Review | ⌘G, context menu, detail | leading swipe, detail |
 | View changes (native diff) | none (D46) | leading swipe, pane toolbar, detail |
-| File into a folder | context menu → Folder, drag | drag onto a folder header |
-| Rename | Edit… ⇧⌘R (with agent) | detail → Rename… (name only) |
-| Tags | ⌘T, context menu | detail → Tags… |
-| Delete | ⌘⌫, context menu | detail ⋯, pane ⋯ |
-| Kill tmux | ⇧⌘K, context menu (not confirmed) | detail (confirmed) |
-| New Folder | project header, row → Folder | detail → Folder → New Folder… |
+| File into a folder | context menu → Folder, drag | drag onto a folder header; detail, pane ⋯ → Folder |
+| Rename | Edit… ⇧⌘R (with agent) | detail, pane ⋯ → Rename… (name only) |
+| Tags | ⌘T, context menu | detail, pane ⋯ → Tags… |
+| Delete | ⌘⌫, context menu | detail, pane ⋯ |
+| Kill tmux | ⇧⌘K, context menu (not confirmed) | detail, pane ⋯ (confirmed) |
+| New Folder | project header, row → Folder | detail, pane ⋯ → Folder → New Folder… |
 | Diff tool, Copy Path, Move Up/Down | yes | none, deliberately |
+| Ticket, Pull request, Open in MergeRight | inspector, context menu | detail, pane ⋯ |
 | Folder header menu | Rename, Archive All, Unarchive All, Delete | the same (long press) |
+
+The Mac row's context menu and the phone's session actions (detail, pane ⋯) run in one order:
+links; Folder, Archive, Edit/Rename, Tags; then Kill tmux and Delete. The Mac's own tools (Review,
+diff tool, Copy Path, Move Up/Down) sit between the last two groups.
 
 Kill tmux is confirmed on the phone and not on the Mac, because a phone row is a bigger target for
 a mis-tap and this stops an agent mid-thought. On the phone it takes the session's pane out of the
