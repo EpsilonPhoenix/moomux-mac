@@ -441,6 +441,42 @@ struct AttachedTerminal: UIViewRepresentable {
             }
         }
 
+        /// The keyboard's hold-space trackpad. UIKit drives it through these
+        /// optional `UITextInput` calls, which the package leaves out, and its
+        /// document is always empty, so there is no caret for UIKit to move.
+        /// The drag becomes arrow keys instead: one per cell travelled, from
+        /// the point where the hold began. tmux reads them like any other key.
+        private var floatingStart: CGPoint?
+        private var floatingSent = (x: 0, y: 0)
+
+        /// UIKit clamps the floating cursor vertically to the caret's line,
+        /// the document's only one here, so a drag could not leave the row.
+        /// For the length of the hold the caret spans the view instead.
+        override func caretRect(for position: UITextPosition) -> CGRect {
+            let rect = super.caretRect(for: position)
+            guard floatingStart != nil else { return rect }
+            return CGRect(x: rect.minX, y: bounds.minY, width: rect.width, height: bounds.height)
+        }
+
+        @objc func beginFloatingCursor(at point: CGPoint) {
+            floatingStart = point
+            floatingSent = (0, 0)
+        }
+
+        @objc func updateFloatingCursor(at point: CGPoint) {
+            guard let start = floatingStart else { return }
+            // One cell: the package's caret is ghostty's IME point.
+            let cell = super.caretRect(for: beginningOfDocument).size
+            guard cell.width > 0, cell.height > 0 else { return }
+            let x = Int((point.x - start.x) / cell.width)
+            let y = Int((point.y - start.y) / cell.height)
+            for _ in 0..<abs(x - floatingSent.x) { sendKey(x > floatingSent.x ? .arrowRight : .arrowLeft) }
+            for _ in 0..<abs(y - floatingSent.y) { sendKey(y > floatingSent.y ? .arrowDown : .arrowUp) }
+            floatingSent = (x, y)
+        }
+
+        @objc func endFloatingCursor() { floatingStart = nil }
+
         /// Kept past `super`: with inline selection on, a single tap is a
         /// recognizer that fires only once a double tap has failed, well
         /// after `touchesEnded` returns. Consumed by the toggle it leads to.
