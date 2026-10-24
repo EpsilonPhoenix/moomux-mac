@@ -6,8 +6,8 @@
       "kind": "remoteSourceControl",
       "location": "https://github.com/afitzgerald/DiffKit.git",
       "state": {
-        "revision": "feb2801b2a892fc0a44618d6858f071c0459e927",
-        "version": "0.3.14"
+        "revision": "e1425764e0e9825110b126b4cb176a15328dceae",
+        "version": "0.3.19"
       }
     },
     {
