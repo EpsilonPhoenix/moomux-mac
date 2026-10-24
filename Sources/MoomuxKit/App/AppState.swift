@@ -97,6 +97,9 @@ public final class AppState {
     /// and PR status. Replaced wholesale on every snapshot — it is absolute
     /// state, not a delta, and no longer a per-agent partial to merge.
     public private(set) var views: [Session.ID: SessionView] = [:]
+    /// When this client first saw each session in its current state. The wire
+    /// carries no such timestamp, so it is local: a launch counts as entering.
+    @ObservationIgnored private var stateSince: [Session.ID: (state: AgentState, at: Date)] = [:]
     /// Project name → its sessions laid out as display rows, folder headers
     /// spliced in — `sessionview.Rows`, derived once in the core. Empty until
     /// the first snapshot, and empty from a core older than folders; both are
@@ -670,6 +673,13 @@ public final class AppState {
     /// a session the core has no view for yet.
     public func state(for session: Session) -> AgentState {
         views[session.id]?.state ?? .unknown
+    }
+
+    /// The menu bar lists only sessions waiting on you, the longest-waiting first.
+    public var menuBarSessions: [Session] {
+        visibleSessions
+            .filter { isAlive($0) && state(for: $0) == .needsInput }
+            .sorted { (stateSince[$0.id]?.at ?? .distantFuture) < (stateSince[$1.id]?.at ?? .distantFuture) }
     }
 
     public func quip(for session: Session) -> String? {
@@ -1407,6 +1417,11 @@ public final class AppState {
         if snapshot.views != views {
             let previous = views
             views = snapshot.views
+            let now = Date()
+            stateSince = views.reduce(into: [:]) { out, kv in
+                let old = stateSince[kv.key]
+                out[kv.key] = old?.state == kv.value.state ? old : (kv.value.state, now)
+            }
             notifier?.report(previous: previous, current: views)
         }
         if snapshot.rows != rows { rows = snapshot.rows }
