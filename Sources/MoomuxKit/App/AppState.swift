@@ -133,6 +133,16 @@ public final class AppState {
     /// pane shows. Two shell-outs per entry, so it is fetched on selection
     /// rather than polled.
     public private(set) var statuses: [Session.ID: MoomuxClient.SessionStatus] = [:]
+    /// When each `statuses` entry was fetched. An entry older than
+    /// `statusTTL` stops overriding the snapshot's badges, which keep moving.
+    private var statusFetchedAt: [Session.ID: Date] = [:]
+    /// Just past the core's own ~1 minute git cache: long enough to beat the
+    /// snapshot after a commit, short enough that a stale answer cannot outlive it.
+    static let statusTTL: TimeInterval = 75
+    /// How often the selected session's status is refetched on the snapshot
+    /// tick: well inside `statusTTL`, so its badge never falls back mid-view.
+    static let selectedStatusRefresh: TimeInterval = 30
+    @ObservationIgnored private var statusInFlight: Set<Session.ID> = []
     /// `Diff`, split into files, for sessions whose changes have been opened.
     /// Fetched on open and on pull-to-refresh, never polled: each one is a
     /// `git diff` on the core. nil inside means "not a git repo", which is not
@@ -703,8 +713,9 @@ public final class AppState {
     /// the detail pane and a dirty badge on its own row for up to another
     /// minute. nil means nobody could tell — draw nothing, which is not the
     /// same as clean.
-    public func gitBadges(for session: Session) -> (dirty: Bool, unpushed: Bool)? {
-        if let fresh = statuses[session.id], fresh.known {
+    public func gitBadges(for session: Session, now: Date = Date()) -> (dirty: Bool, unpushed: Bool)? {
+        if let fresh = statuses[session.id], fresh.known,
+           let at = statusFetchedAt[session.id], now.timeIntervalSince(at) < Self.statusTTL {
             return (fresh.dirty, fresh.unpushed)
         }
         guard let view = views[session.id], view.gitOK else { return nil }
@@ -1307,14 +1318,24 @@ public final class AppState {
         adopt(sessions: fresh)
     }
 
+    func setStatus(_ status: MoomuxClient.SessionStatus, for id: Session.ID) {
+        statuses[id] = status
+        statusFetchedAt[id] = Date()
+    }
+
     /// Loads (or reloads) worktree state and change counts for one session.
-    public func loadStatus(for id: Session.ID, force: Bool = false) async {
-        guard force || statuses[id] == nil else { return }
+    public func loadStatus(for id: Session.ID, force: Bool = false,
+                           maxAge: TimeInterval? = nil) async {
+        let stale = statusFetchedAt[id].map { Date().timeIntervalSince($0) >= (maxAge ?? Self.statusTTL) } ?? true
+        guard force || statuses[id] == nil || stale else { return }
+        // Snapshots land several a second; one fetch at a time per session.
+        guard statusInFlight.insert(id).inserted else { return }
+        defer { statusInFlight.remove(id) }
         do {
             let status = try await withoutBlockingTheUI { [client] in
                 try client.status(id: id)
             }
-            statuses[id] = status
+            setStatus(status, for: id)
         } catch {
             // Leave whatever was there; `connection` already carries the
             // failure, and a missing status row is not worth a second alarm.
@@ -1333,7 +1354,10 @@ public final class AppState {
         if fresh != sessions { sessions = fresh }
         let live = Set(fresh.map(\.id))
         let pruned = statuses.filter { live.contains($0.key) }
-        if pruned.count != statuses.count { statuses = pruned }
+        if pruned.count != statuses.count {
+            statuses = pruned
+            statusFetchedAt = statusFetchedAt.filter { live.contains($0.key) }
+        }
         for id in attachedSessions where !live.contains(id) { detach(id: id) }
         // tmux went away under an attached pane — `/kill`, `moomux park`, a
         // kill from the TUI. libghostty does **not** close the surface when
@@ -1430,6 +1454,11 @@ public final class AppState {
         if drawable != usage { usage = drawable }
         if snapshot.usageSetup != usageSetup { usageSetup = snapshot.usageSetup }
         adopt(sessions: snapshot.sessions)
+        // The detail pane's counts and the row badge for what is on screen:
+        // loadStatus is a no-op until the entry is `selectedStatusRefresh` old.
+        if let id = selectedSessionID, views[id]?.gitOK == true {
+            Task { await loadStatus(for: id, maxAge: Self.selectedStatusRefresh) }
+        }
     }
 
     /// One snapshot, then hang up: the phone's background refresh.
@@ -1743,10 +1772,14 @@ public final class AppState {
             let dirtyRow = sample("a")
             app.views = [dirtyRow.id: view(dirtyRow.id, state: "working", gitOK: true, dirty: true)]
             assert(app.gitBadges(for: dirtyRow)?.dirty == true)
-            app.statuses[dirtyRow.id] = .init(known: true)
+            app.setStatus(.init(known: true), for: dirtyRow.id)
             assert(app.gitBadges(for: dirtyRow)?.dirty == false, "the fresher answer wins")
+            // …only while it is fresh: an old one must yield to the snapshot,
+            // or a badge set once outlives the change until the app restarts.
+            let later = Date().addingTimeInterval(AppState.statusTTL + 1)
+            assert(app.gitBadges(for: dirtyRow, now: later)?.dirty == true, "a stale status must not pin the badge")
             // …but a status nobody could determine is not an answer at all.
-            app.statuses[dirtyRow.id] = .init(known: false)
+            app.setStatus(.init(known: false), for: dirtyRow.id)
             assert(app.gitBadges(for: dirtyRow)?.dirty == true)
         }
 
@@ -1991,9 +2024,9 @@ public final class AppState {
     static let listFontSizeKey = "listFontSize"
 
     #if os(macOS)
-    nonisolated static let systemFontSize = Double(NSFont.systemFontSize)
+    static let systemFontSize = Double(NSFont.systemFontSize)
     #else
-    nonisolated static let systemFontSize = Double(UIFont.systemFontSize)
+    static let systemFontSize = Double(UIFont.systemFontSize)
     #endif
 
     /// Font family for the sidebar. Empty means the system font, which is the
