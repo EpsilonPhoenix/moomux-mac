@@ -1477,7 +1477,7 @@ struct MenuBarContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(app.visibleSessions.filter { app.isAlive($0) }) { session in
+            ForEach(app.menuBarSessions) { session in
                 Button {
                     app.selectedSessionID = session.id
                     NSApp.activate()
@@ -1496,8 +1496,8 @@ struct MenuBarContent: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 5)
             }
-            if app.visibleSessions.isEmpty {
-                Text(app.connection.isDown ? "moomux serve isn't running" : "No sessions")
+            if app.menuBarSessions.isEmpty {
+                Text(app.connection.isDown ? "moomux serve isn't running" : "Nothing needs you")
                     .foregroundStyle(.secondary)
                     .padding(12)
             }
