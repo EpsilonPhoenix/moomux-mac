@@ -554,12 +554,12 @@ private struct SessionRow: View {
     let session: Session
 
     var body: some View {
-        // One line: state icon, name, badges right-aligned. The Mac puts the
-        // badges on a second line, which it can afford in a wide sidebar — on
-        // a phone that cost about half a row of height per session and pushed
-        // three sessions off the screen. A long name truncates instead, which
-        // is the cheaper loss: the badges are fixed-width and the tail of a
-        // name is usually the least distinguishing part of it.
+        // One line: state icon, name, badges right-aligned, same as the Mac.
+        // A second line for the badges cost about half a row of height per
+        // session and pushed three sessions off a phone's screen. A long name
+        // truncates instead, which is the cheaper loss: the badges are
+        // fixed-width and the tail of a name is usually the least
+        // distinguishing part of it.
         //
         // The quip is not here either — it is on the pane's title, where it is
         // about the session you are in rather than one of thirty you are

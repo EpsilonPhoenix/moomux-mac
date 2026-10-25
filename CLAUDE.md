@@ -451,6 +451,14 @@ core new enough to serve them** — there is no fallback to the old local paths.
 
 ## Things that will bite you
 
+- **The Mac sidebar draws its own selection, and a collapse hides every row.** The system's
+  selection pill is grey, the same tone as a project's header band, so `NoSelectionHighlight` sets
+  the backing `NSTableView`'s `selectionHighlightStyle` to `.none` (selection itself — clicks, arrow
+  keys, the binding — is untouched) and the selected row draws an accent bar on each outer edge
+  instead. A collapsed project hides *all* its rows, the selected one included; its terminal stays
+  open, and the header wears the same edges while it is holding the selection. If SwiftUI ever
+  stops backing a `List` with an `NSTableView` the grey pill simply comes back.
+
 - **Tab does not reach a `Picker` or a `Toggle` unless the user has Full Keyboard Access on.**
   macOS keeps pop-up buttons and switches out of the Tab chain by default (System Settings →
   Keyboard → Keyboard navigation; ⌃F7 toggles it), so in the New Session sheet Tab runs Name →
