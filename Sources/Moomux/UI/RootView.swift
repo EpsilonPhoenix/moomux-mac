@@ -93,6 +93,7 @@ struct RootView: View {
                 NoSessionSelectedView()
             }
         }
+        .overlay(alignment: .bottomTrailing) { UpdateBadge() }
         // Blank rather than omitted: an unset title falls back to the
         // Window's own "moomux", which would duplicate RootTitle below.
         // `.toolbar(removing: .title)` looked like the fix for keeping
@@ -1501,6 +1502,28 @@ private struct ConnectionBadge: View {
                     .lineLimit(1)
                     .help("Is `moomux serve` running?")
             }
+        }
+    }
+}
+
+/// Bottom-right, only while the app or the core is out of date. Hover for which and how
+/// to update; the cask follows every tag, so `brew upgrade` is the whole fix.
+private struct UpdateBadge: View {
+    @Environment(AppState.self) private var app
+
+    var body: some View {
+        let lines = [
+            app.appUpdate.map { "Moomux \(WhatsNew.version) → \($0)" },
+            app.coreUpdate.map { "Core \($0.current) → \($0.latest)" },
+        ].compactMap { $0 }
+        if !lines.isEmpty {
+            Label("Update available", systemImage: "arrow.down.circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(.regularMaterial, in: Capsule())
+                .padding(10)
+                .help(lines.joined(separator: "\n"))
         }
     }
 }
