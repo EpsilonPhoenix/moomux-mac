@@ -38,7 +38,47 @@ public enum WebLink {
         return bare.isEmpty || bare.contains(":") ? nil : text
     }
 
+    /// `path` with the sentence punctuation a matcher swallowed taken off its
+    /// end: `. , ; : ! ?`, quotes and backticks, and a closer (`) ] }`) with no
+    /// opener inside the path. nil when nothing came off. Callers try the literal
+    /// path first — `notes.` may really be the file — and fall back to this.
+    public static func strippingTrailingPunctuation(_ path: String) -> String? {
+        var p = Substring(path)
+        let pairs: [Character: Character] = [")": "(", "]": "[", "}": "{"]
+        while let last = p.last {
+            if let open = pairs[last] {
+                guard p.filter({ $0 == last }).count > p.filter({ $0 == open }).count else { break }
+            } else if !".,;:!?'\"`".contains(last) {
+                break
+            }
+            p = p.dropLast()
+        }
+        return p.isEmpty || p.count == path.count ? nil : String(p)
+    }
+
+    /// Runs `body` on the literal path, then the stripped one; a failure of the
+    /// stripped form is dropped, so the error the user reads names what was clicked.
+    public static func firstSuccess<T>(of path: String, _ body: (String) throws -> T) throws -> T {
+        do { return try body(path) } catch {
+            guard let alt = strippingTrailingPunctuation(path), let result = try? body(alt) else { throw error }
+            return result
+        }
+    }
+
     public static func demo() {
+        struct Missing: Error {}
+        let only: (String) throws -> String = { if $0 == "a.png" { return $0 }; throw Missing() }
+        assert((try? firstSuccess(of: "a.png.", only)) == "a.png", "falls back to the stripped path")
+        assert((try? firstSuccess(of: "b.png.", only)) == nil)
+        assert(strippingTrailingPunctuation("/a/.build/inline.png.") == "/a/.build/inline.png")
+        assert(strippingTrailingPunctuation("a.go:42.") == "a.go:42")
+        assert(strippingTrailingPunctuation("a.png`.") == "a.png", "several in a row")
+        assert(strippingTrailingPunctuation("a.png),") == "a.png")
+        assert(strippingTrailingPunctuation("/x/f(1).txt") == nil, "a balanced closer stays")
+        assert(strippingTrailingPunctuation("/x/f(1)") == nil)
+        assert(strippingTrailingPunctuation("/x/a.png") == nil)
+        assert(strippingTrailingPunctuation("...") == nil, "never strip to nothing")
+
         assert(url("https://github.com/a/b/pull/1")?.host == "github.com")
         assert(url("HTTP://example.com") != nil, "scheme is case-insensitive")
         assert(url("  https://example.com/x\n") != nil, "matcher whitespace is trimmed")
