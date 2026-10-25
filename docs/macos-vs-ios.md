@@ -484,6 +484,20 @@ waits out the double-tap, which is also when `LinkTapView`'s link probe runs.
 
 ---
 
+**D54. The phone has a key bar over its keyboard; the Mac has no keyboard to add to.** The pane's
+`inputAccessoryView` is `PaneKeyBar`, not libghostty-spm's own bar: that one's items are a closed
+enum and its look is four colours, so it cannot hold Moomux's buttons. The package supports a host
+drawing its own (`toggleStickyModifier`, `sendKey`, `paste(text:)`), so Ctrl and Alt still ride its
+sticky state. One glass pill: Ctrl, Esc, Tab; Arrow Pad, Paste, Snippets, New Session, View Changes;
+Alt; and Hide Keyboard pinned at the right. The arrows live on a floating pad (`PaneArrowPad`) that
+the bar's pad button opens over the pane — a subview of the terminal, because the accessory host
+clips and hit-tests to the bar — and its keys repeat while held. A handle on its top edge drags it out of the way of an input field;
+the position is kept in `UserDefaults`. New Session opens the same sheet without jumping to
+the new session (the user is attached to another one), and Changes is the toolbar's own route.
+Snippets (`PaneKeyBar.snippets`) are pasted and then sent Return as a keystroke, except one marked
+not to submit (`/spawn `, which takes an argument). Paste and Snippets clear an armed Ctrl/Alt first.
+Ceiling: the punctuation keys the package's bar had (`| ~ /`) are gone.
+
 ## F. Links and files
 
 | | Mac | iPhone |
