@@ -151,6 +151,26 @@ public enum Layout {
         return out
     }
 
+    /// `rows` plus a header for each of `names` that no row draws. The core
+    /// builds folder rows off the session loop, so a folder with no members is
+    /// never sent — and could not be renamed or deleted. They go just above the
+    /// loose block, in the order `names` gives.
+    public static func withEmptyFolders(_ rows: [FolderSidebarRow], names: [String]) -> [FolderSidebarRow] {
+        var drawn = Set<String>()
+        for case let .folder(name, _, _) in rows { drawn.insert(name) }
+        let extra = names.filter { !drawn.contains($0) }.map {
+            FolderSidebarRow.folder(name: $0, collapsed: false, count: 0)
+        }
+        if extra.isEmpty { return rows }
+        let loose = rows.firstIndex {
+            if case let .project(folder, _, _, _) = $0 { return folder.isEmpty }
+            return false
+        }
+        var out = rows
+        out.insert(contentsOf: extra, at: loose ?? out.count)
+        return out
+    }
+
     /// A project's whole session order after moving `id` one step, or nil when
     /// the move has nowhere to go. `sessionview.Reorder`, rule for rule.
     ///
@@ -323,6 +343,11 @@ public enum Layout {
         let open = folderRows(layout(collapsed: false), shown: all, searching: false)
         assert(open.map(\.id) == ["folder:work", "sub:work/one", "a", "sub:work/two", "b",
                                   "sub:/one", "c", "sub:/two", "d"], "\(open.map(\.id))")
+        // A folder nothing is filed in gets a header above the loose block.
+        let withEmpty = withEmptyFolders(open, names: ["work", "later"])
+        assert(withEmpty.map(\.id) == ["folder:work", "sub:work/one", "a", "sub:work/two", "b",
+                                       "folder:later", "sub:/one", "c", "sub:/two", "d"],
+               "\(withEmpty.map(\.id))")
         // Every session one level in from its own header: folder › project ›
         // session is two, the loose block's project › session is one.
         assert(open.compactMap { if case let .session(s, indent) = $0 { return (s.id, indent) }

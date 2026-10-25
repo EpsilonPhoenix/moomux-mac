@@ -922,8 +922,13 @@ public final class AppState {
     /// What the folder-first sidebar draws: the core's folder-first layout,
     /// filtered to this window's view.
     public var folderSidebarRows: [Layout.FolderSidebarRow] {
-        Layout.folderRows(folderRows, shown: listedSessions, searching: searching,
-                          collapsedGroups: collapsedGroups)
+        let rows = Layout.folderRows(folderRows, shown: listedSessions, searching: searching,
+                                     collapsedGroups: collapsedGroups)
+        // Whole-store membership decides "empty", so a folder whose members are
+        // merely filtered out of this window is not mistaken for one.
+        let used = Set(sessions.map(\.folder))
+        return searching || folderRows.isEmpty ? rows
+            : Layout.withEmptyFolders(rows, names: folderNames.filter { !used.contains($0) })
     }
 
     /// Which (folder, project) groups the folder-first sidebar is folding: the
