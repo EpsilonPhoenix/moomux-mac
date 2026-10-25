@@ -115,6 +115,11 @@ public final class AppState {
     public private(set) var usage: Usage?
     /// Why there is no usage, off the snapshot — Settings' "Claude usage" row.
     public private(set) var usageSetup: String?
+    /// A newer release of this app than the one running, from GitHub. Mac
+    /// only: the phone updates through TestFlight, not the cask.
+    public private(set) var appUpdate: String?
+    /// The same for the core, off the snapshot.
+    public private(set) var coreUpdate: CoreUpdate?
     public private(set) var config: Config?
     /// Which agents the core can launch, and what to offer in a model or
     /// thinking-level picker for each. Fetched once — it is a static table in
@@ -1191,6 +1196,16 @@ public final class AppState {
 
     // MARK: Lifecycle
 
+    private func updateLoop() async {
+        #if os(macOS)
+        while !Task.isCancelled {
+            let found = await UpdateCheck.newerVersion(than: WhatsNew.version)
+            if found != appUpdate { appUpdate = found }
+            try? await Task.sleep(for: .seconds(6 * 3600))
+        }
+        #endif
+    }
+
     public func start() {
         guard tasks.isEmpty else { return }
         // Here rather than in `init`: `--selftest` exits inside `bootstrap()`
@@ -1209,6 +1224,7 @@ public final class AppState {
             Task { [weak self] in await self?.loadAgentOptions() },
             Task { [weak self] in await self?.loadThemes() },
             Task { [weak self] in await self?.loadGhosttyConfig() },
+            Task { [weak self] in await self?.updateLoop() },
         ]
         watch = Task { [weak self] in await self?.watchLoop() }
     }
@@ -1470,6 +1486,7 @@ public final class AppState {
         let drawable = snapshot.usage.flatMap { $0.isDrawable ? $0 : nil }
         if drawable != usage { usage = drawable }
         if snapshot.usageSetup != usageSetup { usageSetup = snapshot.usageSetup }
+        if snapshot.updateAvailable != coreUpdate { coreUpdate = snapshot.updateAvailable }
         adopt(sessions: snapshot.sessions)
         // The detail pane's counts and the row badge for what is on screen:
         // loadStatus is a no-op until the entry is `selectedStatusRefresh` old.

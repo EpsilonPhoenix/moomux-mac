@@ -723,9 +723,13 @@ public struct Snapshot: Decodable, Sendable {
     /// `unreadable`, `unsupported` or `no_claude`. Nil beside a usage, and
     /// from a core older than the key — `UsageSetup` reads that as "update".
     public var usageSetup: String?
+    /// A newer core than the one running, when it knows of one. Absent when up
+    /// to date, a dev build, or a core older than the key.
+    public var updateAvailable: CoreUpdate?
 
     enum CodingKeys: String, CodingKey {
         case sessions, views, rows, err, usage
+        case updateAvailable = "update_available"
         case usageSetup = "usage_setup"
         case folderRows = "folder_rows"
         case pollTime = "poll_time"
@@ -743,6 +747,7 @@ public struct Snapshot: Decodable, Sendable {
         // down with it: it is the least important thing on the snapshot.
         usage = try? c.decodeIfPresent(Usage.self, forKey: .usage)
         usageSetup = try? c.decodeIfPresent(String.self, forKey: .usageSetup)
+        updateAvailable = try? c.decodeIfPresent(CoreUpdate.self, forKey: .updateAvailable)
         // Present-but-null counts: a core with no sessions at all sends
         // `"views": null`, and that is an answer.
         derived = c.contains(.views)
@@ -1377,6 +1382,10 @@ public enum Wire {
         let missing = try! decoder.decode(
             Snapshot.self, from: Data(#"{"views":{},"usage_setup":"not_installed"}"#.utf8))
         assert(missing.usage == nil && missing.usageSetup == "not_installed")
+        let upd = try! Wire.decoder.decode(
+            Snapshot.self, from: Data(#"{"views":{},"update_available":{"current":"0.6.64","latest":"0.6.70"}}"#.utf8))
+        assert(upd.updateAvailable == CoreUpdate(current: "0.6.64", latest: "0.6.70"))
+        assert(none.updateAvailable == nil, "no key is nothing to draw")
 
         // `usage`, exactly as erickgnclvs/moomux#314 serializes it.
         let withUsage = try! decoder.decode(Snapshot.self, from: Data(#"""
@@ -1457,4 +1466,11 @@ public enum Wire {
                + #""Project":"moomux","Prompt":"fix it","Thinking":"high","Ticket":"T-1"}"#, req)
         assert(!req.contains("OpenTerminal"), "a new session belongs in this app, not in iTerm")
     }
+}
+
+/// `update_available` on the snapshot: the core's own version and the newest
+/// release, both bare (no `v`).
+public struct CoreUpdate: Codable, Hashable, Sendable {
+    public var current: String
+    public var latest: String
 }

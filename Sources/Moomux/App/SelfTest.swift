@@ -38,6 +38,7 @@ enum SelfTest {
         WindowSwipe.demo()
         WebSheet.demo()
         WhatsNew.demo()
+        UpdateCheck.demo()
         String.shellQuotedDemo()
         TerminalPane.commandDemo()
         AppState.ghosttyConfigDemo()
