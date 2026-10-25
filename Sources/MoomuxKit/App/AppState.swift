@@ -891,15 +891,12 @@ public final class AppState {
         config?.projects[name]?.collapsed = collapsed
     }
 
-    /// The rows a project shows: all of them when expanded, and the selected
-    /// session's when collapsed — folding away the session whose terminal is
-    /// on screen reads as the collapse having lost it. Selected *and*
-    /// attached, not merely attached: a pane outlives switching away from it
-    /// (see `SessionDetail`), so every session ever opened would otherwise
-    /// pile up under a collapsed project.
+    /// The rows a project shows: all of them when expanded, none when
+    /// collapsed. Not even the selected session's: a collapsed header with a
+    /// row still under it reads as the collapse not having worked. Its
+    /// terminal stays on screen either way.
     public func shownSessions(of project: String, in sessions: [Session]) -> [Session] {
-        if projectExpanded(project) { return sessions }
-        return sessions.filter { $0.id == selectedSessionID && attachedSessions.contains($0.id) }
+        projectExpanded(project) ? sessions : []
     }
 
     /// The core's layout for a project, or one loose row per session when it
@@ -910,19 +907,11 @@ public final class AppState {
     }
 
     /// What the sidebar draws under a project header: the core's row layout,
-    /// filtered to this window's view. A collapsed project keeps only the
-    /// pinned row, as it always did.
+    /// filtered to this window's view. A collapsed project shows no rows.
     public func sidebarRows(of project: String, in sessions: [Session]) -> [Layout.SidebarRow] {
-        let shown = shownSessions(of: project, in: sessions)
-        guard projectExpanded(project) else { return shown.map { .session($0, folder: "") } }
-        return Layout.rows(layout(of: project, in: allSessions(of: project)), shown: shown,
-                           searching: searching, pinned: pinnedSession)
-    }
-
-    /// The session no collapse may hide: the selected one, while its pane is
-    /// attached. Both lenses exempt it.
-    var pinnedSession: String? {
-        selectedSessionID.flatMap { attachedSessions.contains($0) ? $0 : nil }
+        guard projectExpanded(project) else { return [] }
+        return Layout.rows(layout(of: project, in: allSessions(of: project)),
+                           shown: shownSessions(of: project, in: sessions), searching: searching)
     }
 
     /// Whether the sidebar is drawing the folder-first layout: the preference,
@@ -934,7 +923,7 @@ public final class AppState {
     /// filtered to this window's view.
     public var folderSidebarRows: [Layout.FolderSidebarRow] {
         let rows = Layout.folderRows(folderRows, shown: listedSessions, searching: searching,
-                                     collapsedGroups: collapsedGroups, pinned: pinnedSession)
+                                     collapsedGroups: collapsedGroups)
         // Whole-store membership decides "empty", so a folder whose members are
         // merely filtered out of this window is not mistaken for one.
         let used = Set(sessions.map(\.folder))
@@ -1036,11 +1025,31 @@ public final class AppState {
                 sidebarRows(of: $0.project, in: $0.sessions).compactMap { $0.session?.id }
             }
         guard !ids.isEmpty else { return }
-        guard let current = selectedSessionID, let index = ids.firstIndex(of: current) else {
+        guard let current = selectedSessionID else {
             selectedSessionID = ids[0]
             return
         }
-        selectedSessionID = ids[(index + delta + ids.count) % ids.count]
+        if let index = ids.firstIndex(of: current) {
+            selectedSessionID = ids[(index + delta + ids.count) % ids.count]
+            return
+        }
+        // The selection is not on screen — its project or folder is collapsed.
+        // Step from where its row would be, in the direction asked, rather
+        // than jumping to the top whichever way the key points.
+        let all = folderView
+            ? folderRows.filter { $0.kind == .session }.map(\.id)
+            : sessionsByProject.flatMap { group in
+                layout(of: group.project, in: allSessions(of: group.project))
+                    .filter { !$0.isFolder }.map(\.id)
+            }
+        guard let at = all.firstIndex(of: current) else {
+            selectedSessionID = ids[0]
+            return
+        }
+        let after = Array(all[(at + 1)...]) + Array(all[..<at])
+        let order = delta > 0 ? after : after.reversed()
+        let visible = Set(ids)
+        selectedSessionID = order.first(where: visible.contains) ?? ids[0]
     }
 
     /// Manual reordering is meaningless while the core sorts by last-opened —
@@ -1695,19 +1704,18 @@ public final class AppState {
             app.selectAdjacentSession(by: 1)
             assert(app.selectedSessionID == "b:three", "the only visible row wraps to itself")
 
-            // The selected session's terminal is on screen, so its row stays
-            // whatever the collapse says — and ⌘↓ can still reach it.
+            // A live, selected session does not hold its project open: the
+            // collapse hides every row, and ⌘↓ steps to a row that is visible.
             app.views = ["a:two": view("a:two", state: "working")]
             app.attach(row("a", "two"))
             app.selectedSessionID = "a:two"
-            assert(app.shownSessions(of: "a", in: app.sessions).map(\.id) == ["a:two"])
-            // Still attached, but no longer what the right pane shows: a pane
-            // that outlived the switch away must not keep its row.
-            app.selectedSessionID = "b:three"
             assert(app.shownSessions(of: "a", in: app.sessions).isEmpty)
-            app.selectedSessionID = "a:two"
+            assert(app.sidebarRows(of: "a", in: app.sessions).isEmpty)
             app.selectAdjacentSession(by: 1)
-            assert(app.selectedSessionID == "b:three", "the pinned row is in the rotation")
+            assert(app.selectedSessionID == "b:three", "a hidden selection steps to a visible row")
+            app.selectedSessionID = "a:two"
+            app.selectAdjacentSession(by: -1)
+            assert(app.selectedSessionID == "b:three", "hidden selection, stepping up, wraps to the last visible row")
             app.detach(id: "a:two")
             app.views = [:]
 

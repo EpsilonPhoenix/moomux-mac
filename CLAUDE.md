@@ -451,6 +451,14 @@ core new enough to serve them** — there is no fallback to the old local paths.
 
 ## Things that will bite you
 
+- **The Mac sidebar draws its own selection, and a collapse hides every row.** The system's
+  selection pill is grey, the same tone as a project's header band, so `NoSelectionHighlight` sets
+  the backing `NSTableView`'s `selectionHighlightStyle` to `.none` (selection itself — clicks, arrow
+  keys, the binding — is untouched) and the selected row draws an accent bar on each outer edge
+  instead. A collapsed project hides *all* its rows, the selected one included; its terminal stays
+  open, and the header wears the same edges while it is holding the selection. If SwiftUI ever
+  stops backing a `List` with an `NSTableView` the grey pill simply comes back.
+
 - **Tab does not reach a `Picker` or a `Toggle` unless the user has Full Keyboard Access on.**
   macOS keeps pop-up buttons and switches out of the Tab chain by default (System Settings →
   Keyboard → Keyboard navigation; ⌃F7 toggles it), so in the New Session sheet Tab runs Name →
@@ -503,9 +511,11 @@ core new enough to serve them** — there is no fallback to the old local paths.
   `[indent][disclosure][icon][name]` with the disclosure and icon columns fixed-width, left *empty*
   rather than skipped by a row that has neither. So a name's x follows from its nesting level and
   nothing else — not whether the row has a chevron, not whether a project set an emoji, not the
-  glyph metrics of whatever font the sidebar is set to. A session sits one level in from whatever
-  header it is grouped under (project › session is one, folder › project › session two), and pays
-  for the chevron column it does not use in its leading padding (`SidebarGrid.rowIndent`). One knob,
+  glyph metrics of whatever font the sidebar is set to. A session is **not** indented from its
+  header: its dot sits straight under the header's icon (`SidebarGrid.rowIndent` of the header's
+  level, which is the session's `level - 1` — it pays for the chevron column it does not use). What
+  says which header a session belongs to is the header's band instead: small bold caps on a tinted
+  row, rounded on top while expanded and a full pill when collapsed, on both apps. One knob,
   `SidebarGrid.step`; the pair of hand-tuned constants this replaced could not stay aligned when a
   row's prefix changed width, which is exactly what an emoji-less project did. Two things
   differ from the project-first list. A project *subheader* inside a folder folds **locally**

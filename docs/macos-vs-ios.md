@@ -555,7 +555,7 @@ navigated to the terminal.
 |---|---|---|
 | Lenses | project-first / folder-first, ⇧⌘F | the same two, ⋯ → Group by Folder |
 | Project header | plain `.selectionDisabled()` row | `Section` header (project-first) or row (folder-first) |
-| Row | state icon + name; badges on a second line | state icon + name + badges on one line |
+| Row | state icon + name + badges on one line | the same |
 | Quip | toolbar title for the selection | toolbar title of the attached pane |
 | Font | Settings → Appearance (family, size) | system, `SidebarGrid.phoneFont` |
 | Tap | select, and auto-attach if alive; double-click attaches even parked | attach if alive, else open detail |
@@ -568,10 +568,10 @@ parked row on the phone opens detail, because `Attach` revives, and a mis-tap wh
 would start an agent. A tapped phone notification follows the same gate. Reviving is always a
 deliberate button: Attach in detail, or double-click on the Mac.
 
-**D42. One row line on the phone, not two.** The Mac's second badge line cost about half a row of
-height per session on a phone and pushed three sessions off the screen. So the badges sit
-right-aligned on the name's line and the name truncates at the tail. The quip moved to the pane's
-title, where it describes the session you are in.
+**D42. One row line, on both.** A second line for the badges cost about half a row of height per
+session on a phone and pushed three sessions off the screen. So the badges sit right-aligned on
+the name's line and the name truncates at the tail, and the Mac does the same so the two lists
+read alike. The quip moved to the pane's title, where it describes the session you are in.
 
 **D43. Plain rows for Mac headers, `Section` headers on the phone.** A Mac sidebar `Section` keeps
 its own hidden disclosure state, which falls out of phase with the core's collapsed flag at
