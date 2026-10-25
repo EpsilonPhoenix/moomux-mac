@@ -503,9 +503,11 @@ core new enough to serve them** — there is no fallback to the old local paths.
   `[indent][disclosure][icon][name]` with the disclosure and icon columns fixed-width, left *empty*
   rather than skipped by a row that has neither. So a name's x follows from its nesting level and
   nothing else — not whether the row has a chevron, not whether a project set an emoji, not the
-  glyph metrics of whatever font the sidebar is set to. A session sits one level in from whatever
-  header it is grouped under (project › session is one, folder › project › session two), and pays
-  for the chevron column it does not use in its leading padding (`SidebarGrid.rowIndent`). One knob,
+  glyph metrics of whatever font the sidebar is set to. A session is **not** indented from its
+  header: its dot sits straight under the header's icon (`SidebarGrid.rowIndent` of the header's
+  level, which is the session's `level - 1` — it pays for the chevron column it does not use). What
+  says which header a session belongs to is the header's band instead: small bold caps on a tinted
+  row, rounded on top while expanded and a full pill when collapsed, on both apps. One knob,
   `SidebarGrid.step`; the pair of hand-tuned constants this replaced could not stay aligned when a
   row's prefix changed width, which is exactly what an emoji-less project did. Two things
   differ from the project-first list. A project *subheader* inside a folder folds **locally**

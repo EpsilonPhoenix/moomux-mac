@@ -869,7 +869,11 @@ private struct ProjectHeader: View {
                 .frame(width: SidebarGrid.icon(app.listFontSize))
             Text(name)
         }
-        .font(Theme.list(app.listFontFamily, app.listFontSize))
+        // Small caps on a band: the tint is what says "group" now that
+        // sessions no longer repeat the header's weight and size.
+        .font(Theme.list(app.listFontFamily, max(9, app.listFontSize - 2)).weight(.semibold))
+        .textCase(.uppercase)
+        .padding(.vertical, 3)
         // Level 0 in both lenses: a project header is either the top of the
         // list or the top of the trailing loose block.
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -878,7 +882,7 @@ private struct ProjectHeader: View {
         .dropDestination(for: String.self) { ids, _ in
             app.drop(ids, into: "", project: name)
         } isTargeted: { targeted = $0 }
-        .listRowBackground(targeted ? SessionTheme.dropTarget : nil)
+        .listRowBackground(targeted ? AnyView(SessionTheme.dropTarget) : AnyView(band(expanded: expanded)))
         .contextMenu {
             Button("New Folder…") { app.sheet = .newFolder(assign: nil) }
         }
@@ -886,6 +890,19 @@ private struct ProjectHeader: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(expanded || hidden == 0 ? name : "\(name), collapsed, \(hidden) sessions")
         .accessibilityAction { app.setProject(name, expanded: !expanded) }
+    }
+
+    /// A tab on its group: rounded top, square bottom while the sessions sit
+    /// under it. Collapsed there is nothing under it, so it closes all four
+    /// corners and steps in so neighbouring projects do not fuse. Same shape
+    /// as the phone's header band.
+    private func band(expanded: Bool) -> some View {
+        let r: CGFloat = expanded ? 0 : 8
+        return UnevenRoundedRectangle(topLeadingRadius: 8, bottomLeadingRadius: r,
+                                      bottomTrailingRadius: r, topTrailingRadius: 8)
+            .fill(Color.primary.opacity(0.08))
+            .padding(.vertical, expanded ? 0 : 1)
+            .padding(.horizontal, 6)
     }
 }
 
@@ -987,7 +1004,9 @@ private struct SessionRow: View {
         // row sets its own size below.
         .font(Theme.list(app.listFontFamily, app.listFontSize))
         .padding(.vertical, 2)
-        .padding(.leading, SidebarGrid.rowIndent(level, app.listFontSize))
+        // `level - 1`: the dot sits straight under its header's icon, not a
+        // step in from it — the band is what says which header it belongs to.
+        .padding(.leading, SidebarGrid.rowIndent(max(0, level - 1), app.listFontSize))
         // The payload is the session id as a plain string — no custom UTType,
         // which would need an Info.plist declaration to be worth anything.
         // The cost is that dragging a row into a text field types its id;

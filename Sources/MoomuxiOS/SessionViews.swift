@@ -182,6 +182,9 @@ struct SessionListView: View {
             // column it has no chevron for, which is what puts its state icon
             // one clean step right of the icon of the header above it.
             .padding(.leading, SidebarGrid.rowIndent(indent - 1, SidebarGrid.phoneFont))
+            // The folder-first lens has no card per project, so the header
+            // band is what groups; rules between sessions would fight it.
+            .listRowSeparator(app.folderView ? .hidden : .automatic)
     }
 
 
@@ -249,6 +252,8 @@ struct SessionListView: View {
                 if app.folderView { folderFirstRows } else { projectFirstSections }
             }
             .listStyle(.insetGrouped)
+            .environment(\.defaultMinListHeaderHeight, 0)
+            .contentMargins(.top, 0, for: .scrollContent)
             // No title: "Sessions" named the only screen there is, and on a
             // phone a large title costs a row of sessions to say nothing.
             .navigationBarTitleDisplayMode(.inline)
@@ -510,9 +515,13 @@ private struct ProjectHeader: View {
                 Text([app.emoji(for: name), name].compactMap { $0 }.joined(separator: " "))
                 Spacer(minLength: 6)
             }
+            .font(.footnote.weight(.semibold))
+            .textCase(.uppercase)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // The band is the divider; a rule above or below it would double it.
+        .listRowSeparator(isRow ? .hidden : .automatic)
         // Dropping on a project un-files the session. A section header has
         // no row to tint, so it gets a `background`; as a row it tints edge
         // to edge like the `FolderHeader` beside it.
@@ -520,9 +529,23 @@ private struct ProjectHeader: View {
             app.drop(ids, into: "", project: name)
         } isTargeted: { targeted = $0 }
         .background(targeted && !isRow ? SessionTheme.dropTarget : .clear)
-        .listRowBackground(targeted && isRow ? SessionTheme.dropTarget : nil)
+                .listRowBackground(targeted && isRow ? AnyView(SessionTheme.dropTarget) : (isRow ? AnyView(band(expanded: expanded)) : nil))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(expanded || count == 0 ? name : "\(name), collapsed, \(count) sessions")
+    }
+
+    /// A tab on its group: rounded top, square bottom while the sessions sit
+    /// under it. Collapsed there is nothing under it, so it closes all four
+    /// corners and steps in so neighbouring projects do not fuse.
+    private func band(expanded: Bool) -> some View {
+        let r: CGFloat = expanded ? 0 : 12
+        return ZStack {
+            Color(uiColor: .secondarySystemGroupedBackground)
+            UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: r,
+                                   bottomTrailingRadius: r, topTrailingRadius: 12)
+                .fill(Color(uiColor: .tertiarySystemGroupedBackground))
+                .padding(.vertical, expanded ? 0 : 2)
+        }
     }
 }
 
