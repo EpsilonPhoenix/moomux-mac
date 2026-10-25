@@ -41,6 +41,9 @@ struct TerminalScreen: View {
     /// this both would raise the alert.
     @State private var deleting = false
     @State private var killing = false
+    /// From the key bar. `focus` says no: the user is attached to a session and
+    /// a create takes tens of seconds, so a jump would detach them from it.
+    @State private var creating = false
     /// The pane's own, for the same reason as `deleting`: detail binds its
     /// own copy of these alerts.
     @State private var edit: SessionEdit?
@@ -67,7 +70,11 @@ struct TerminalScreen: View {
                          onURL: open(url:),
                          onFile: open(file:),
                          onPinch: { fontSize = $0 },
-                         onSwipe: { app.selectWindow(sessionID, delta: $0) })
+                         onSwipe: { app.selectWindow(sessionID, delta: $0) },
+                         onNewSession: { creating = true },
+                         onChanges: {
+                             if app.session(id: sessionID).map(app.canDiff) == true { push(.changes(sessionID)) }
+                         })
             // The core's Ghostty config arriving after this pane was built:
             // a new surface is the only way to apply it (`paneConfigGeneration`).
             .id(app.paneConfigGeneration)
@@ -84,6 +91,7 @@ struct TerminalScreen: View {
             // missing. Reported as "the cursor is two lines below where it
             // should be", which is precisely the inset in rows.
             .quickLookPreview($preview)
+            .sheet(isPresented: $creating) { NewSessionSheet(app: app, focus: { false }) }
             // Leaving the pane abandons its fetch, or a late refusal raises
             // "Couldn't do that" over whatever screen is next.
             .onDisappear {
@@ -283,12 +291,16 @@ struct AttachedTerminal: UIViewRepresentable {
     let onFile: (String) -> Void
     let onPinch: (Double) -> Void
     let onSwipe: (Int) -> Void
+    let onNewSession: () -> Void
+    let onChanges: () -> Void
 
     func makeUIView(context: Context) -> UITerminalView {
         let view = LinkTapView(frame: .init(x: 0, y: 0, width: 390, height: 600))
         view.liveFontSize = fontSize
         view.onPinch = onPinch
         view.onSwipe = onSwipe
+        view.keyBar.onNewSession = onNewSession
+        view.keyBar.onChanges = onChanges
         pane.view = view
         view.delegate = context.coordinator
         view.controller = controller
@@ -363,6 +375,7 @@ struct AttachedTerminal: UIViewRepresentable {
             for recognizer in gestureRecognizers ?? [] where recognizer is UIPinchGestureRecognizer {
                 recognizer.isEnabled = false
             }
+            keyBar.terminal = self
             addGestureRecognizer(UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:))))
             // The package's touch-scroll pan, which already owns every finger
             // drag; a second recognizer would have to fight it. Matched as the
@@ -413,6 +426,11 @@ struct AttachedTerminal: UIViewRepresentable {
         }
 
         required init?(coder: NSCoder) { fatalError("not from a nib") }
+
+        /// Replaces the package's accessory bar — see `PaneKeyBar`.
+        let keyBar = PaneKeyBar()
+
+        override var inputAccessoryView: UIView? { keyBar }
 
         /// Steps the live surface to `size`. Idempotent, so the save that a
         /// pinch triggers coming back through `onChange` does nothing.
