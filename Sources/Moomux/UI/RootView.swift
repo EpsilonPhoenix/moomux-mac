@@ -77,6 +77,14 @@ enum Theme {
 struct RootView: View {
     @Environment(AppState.self) private var app
 
+    private func showCoreWhatsNew() {
+        guard app.sheet == nil, let core = app.coreWhatsNew else { return }
+        let unseen = WhatsNew.takeUnseen(in: core.releases, current: core.version, key: WhatsNew.coreSeenKey)
+        if unseen.show {
+            app.sheet = .coreWhatsNew(WhatsNew.releases(after: unseen.seen, in: core.releases, current: core.version))
+        }
+    }
+
     var body: some View {
         @Bindable var app = app
         NavigationSplitView {
@@ -182,6 +190,18 @@ struct RootView: View {
             let unseen = WhatsNew.takeUnseen()
             if unseen.show { app.sheet = .whatsNew(after: unseen.seen) }
         }
+        // The core's notes arrive on a snapshot, after the app's own sheet may
+        // already be up; a sheet in the way just means asking again once it closes.
+        .onChange(of: app.coreWhatsNew) { _, _ in showCoreWhatsNew() }
+        // Not at once: an item swapped in mid-dismissal repaints the sheet that
+        // is leaving with the new content, then presents again.
+        .onChange(of: app.sheet) { _, sheet in
+            guard sheet == nil else { return }
+            Task {
+                try? await Task.sleep(for: .milliseconds(600))
+                showCoreWhatsNew()
+            }
+        }
         // `hint` is what the last *session-less* action had to say, rendered
         // in whichever Info pane is showing, so it must not outlive the
         // selection. Per-session ones live in `sessionHints` and stay put.
@@ -237,6 +257,8 @@ struct RootView: View {
                 SettingsSheet()
             case let .whatsNew(after):
                 WhatsNewSheet(releases: WhatsNew.releases(after: after))
+            case let .coreWhatsNew(releases):
+                WhatsNewSheet(releases: releases, subject: "the core")
             case .acknowledgements:
                 AcknowledgementsSheet()
             }

@@ -726,9 +726,13 @@ public struct Snapshot: Decodable, Sendable {
     /// A newer core than the one running, when it knows of one. Absent when up
     /// to date, a dev build, or a core older than the key.
     public var updateAvailable: CoreUpdate?
+    /// The core's own release notes, newest first. Absent from a dev build, a
+    /// build without notes, or a core older than the key.
+    public var whatsNew: CoreWhatsNew?
 
     enum CodingKeys: String, CodingKey {
         case sessions, views, rows, err, usage
+        case whatsNew = "whats_new"
         case updateAvailable = "update_available"
         case usageSetup = "usage_setup"
         case folderRows = "folder_rows"
@@ -748,6 +752,7 @@ public struct Snapshot: Decodable, Sendable {
         usage = try? c.decodeIfPresent(Usage.self, forKey: .usage)
         usageSetup = try? c.decodeIfPresent(String.self, forKey: .usageSetup)
         updateAvailable = try? c.decodeIfPresent(CoreUpdate.self, forKey: .updateAvailable)
+        whatsNew = try? c.decodeIfPresent(CoreWhatsNew.self, forKey: .whatsNew)
         // Present-but-null counts: a core with no sessions at all sends
         // `"views": null`, and that is an answer.
         derived = c.contains(.views)
@@ -1466,6 +1471,13 @@ public enum Wire {
                + #""Project":"moomux","Prompt":"fix it","Thinking":"high","Ticket":"T-1"}"#, req)
         assert(!req.contains("OpenTerminal"), "a new session belongs in this app, not in iTerm")
     }
+}
+
+/// `whats_new` on the snapshot: the running core's version and its notes, both
+/// already in `WhatsNew`'s shape, versions bare.
+public struct CoreWhatsNew: Codable, Hashable, Sendable {
+    public var version: String
+    public var releases: [WhatsNew.Release]
 }
 
 /// `update_available` on the snapshot: the core's own version and the newest
