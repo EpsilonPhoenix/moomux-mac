@@ -506,21 +506,6 @@ private struct GeneralPane: View {
                     .help("Off leaves the sidebar selection where it was")
             }
 
-            if cfg != nil {
-                Section {
-                    Toggle("Relaunch the TUI inside tmux", isOn: Binding(
-                        get: { cfg?.autoTmux ?? false },
-                        set: { app.setAutoTmux($0) }))
-                } header: {
-                    Text("Terminal UI")
-                } footer: {
-                    Text("moomux run in a terminal puts itself in a dedicated tmux session on "
-                         + "startup. Nothing to do with this app's panes — see the Terminal "
-                         + "pane for those.")
-                    .font(.caption)
-                }
-            }
-
             // Not ours to fix: macOS leaves pop-up buttons and switches out of
             // the Tab chain unless Full Keyboard Access is on, so Tab in the New
             // Session sheet skips Agent, Model and Thinking entirely and looks
@@ -640,20 +625,12 @@ private struct AppearancePane: View {
                         set: { app.setTheme($0, appearance: cfg?.appearance ?? "") })) {
                         ForEach(app.themeNames, id: \.self) { Text($0).tag($0) }
                     }
-                    Picker("TUI appearance", selection: Binding(
-                        get: { cfg?.appearance?.nilIfEmpty ?? "auto" },
-                        set: { app.setTheme(cfg?.theme ?? "", appearance: $0 == "auto" ? "" : $0) })) {
-                        Text("auto").tag("auto")
-                        Text("light").tag("light")
-                        Text("dark").tag("dark")
-                    }
                 } header: {
                     Text("Theme")
                 } footer: {
                     Text("Theme is shared: the core serves the palette both front ends draw "
                          + "from, so a session's state color is the same here and in the "
-                         + "terminal UI. Appearance is the terminal UI's alone — this app "
-                         + "follows the system.")
+                         + "terminal UI.")
                     .font(.caption)
                 }
             }

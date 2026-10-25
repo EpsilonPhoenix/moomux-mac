@@ -40,6 +40,10 @@ struct TerminalScreen: View {
     /// same `pendingDelete` and sits above this one when open, so without
     /// this both would raise the alert.
     @State private var deleting = false
+    @State private var killing = false
+    /// The pane's own, for the same reason as `deleting`: detail binds its
+    /// own copy of these alerts.
+    @State private var edit: SessionEdit?
 
     /// A tapped file, fetched from the core and shown in Quick Look — which
     /// already does images, PDFs, text and code, with zoom and a share sheet.
@@ -111,39 +115,45 @@ struct TerminalScreen: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        // Attached is exactly when you want the branch, the PR
-                        // state and the worktree — the row's swipe reaches
-                        // detail too, but not once you are already in here.
-                        Button { push(.detail(sessionID)) } label: {
-                            Label("Details", systemImage: "info.circle")
-                        }
-                        // Here and not in the list's menu: it is this pane's
-                        // size, and the one place to judge it is looking at it.
-                        Picker(selection: $fontSize) {
-                            ForEach(TerminalFontSize.choices(including: fontSize), id: \.self) { size in
-                                Text("\(Int(size)) pt").tag(size)
-                            }
-                        } label: {
-                            Label("Text Size", systemImage: "textformat.size")
-                        }
-                        .pickerStyle(.menu)
-                        Section {
+                        // One row, not two: the menu otherwise outgrows the
+                        // screen and scrolls.
+                        ControlGroup {
                             // A `Button` and not a `PhotosPicker`: inside a
                             // `Menu` the picker lays its label out itself, so
                             // its icon sat at a different gap from Files'.
                             Button { pickingPhotos = true } label: {
-                                Label("Attach Photos", systemImage: "photo.on.rectangle")
+                                Label("Photos", systemImage: "photo.on.rectangle")
                             }
                             Button { importingFiles = true } label: {
-                                Label("Attach Files", systemImage: "folder")
+                                Label("Files", systemImage: "folder")
                             }
                         }
                         .disabled(attachments.pending > 0)
                         if let session = app.session(id: sessionID) {
-                            SessionActions(app: app, session: session) {
-                                deleting = true
-                                app.askDelete(session)
+                            SessionActions(app: app, session: session, edit: $edit, inMenu: true,
+                                           kill: { killing = true },
+                                           delete: {
+                                               deleting = true
+                                               app.askDelete(session)
+                                           })
+                        }
+                        ControlGroup {
+                            // Attached is exactly when you want the branch, the PR
+                            // state and the worktree — the row's swipe reaches
+                            // detail too, but not once you are already in here.
+                            Button { push(.detail(sessionID)) } label: {
+                                Label("Details", systemImage: "info.circle")
                             }
+                            // Here and not in the list's menu: it is this pane's
+                            // size, and the one place to judge it is looking at it.
+                            Picker(selection: $fontSize) {
+                                ForEach(TerminalFontSize.choices(including: fontSize), id: \.self) { size in
+                                    Text("\(Int(size)) pt").tag(size)
+                                }
+                            } label: {
+                                Label("Text Size", systemImage: "textformat.size")
+                            }
+                            .pickerStyle(.menu)
                         }
                     } label: {
                         // A spinner while a batch uploads, but still a menu:
@@ -187,6 +197,18 @@ struct TerminalScreen: View {
                 }
             } message: {
                 Text(app.session(id: sessionID).map(app.deleteWarning(for:)) ?? "")
+            }
+            .sessionEditing(app: app, session: app.session(id: sessionID), edit: $edit)
+            // Same question as detail's. The pane leaves first, or its
+            // reconnect would stand the session straight back up.
+            .confirmationDialog("Stop \(app.session(id: sessionID)?.name ?? "session")'s agent?",
+                                isPresented: $killing, titleVisibility: .visible) {
+                Button("Kill tmux", role: .destructive) {
+                    dismiss()
+                    if let session = app.session(id: sessionID) { app.killTmux(session) }
+                }
+            } message: {
+                Text("Its tmux session ends. The worktree and branch stay, and Attach starts it again.")
             }
             // No `onDisappear` cancel, unlike the sheet: pushing the info
             // screen disappears this one too, and would drop a batch mid-way.
@@ -418,6 +440,42 @@ struct AttachedTerminal: UIViewRepresentable {
                 break
             }
         }
+
+        /// The keyboard's hold-space trackpad. UIKit drives it through these
+        /// optional `UITextInput` calls, which the package leaves out, and its
+        /// document is always empty, so there is no caret for UIKit to move.
+        /// The drag becomes arrow keys instead: one per cell travelled, from
+        /// the point where the hold began. tmux reads them like any other key.
+        private var floatingStart: CGPoint?
+        private var floatingSent = (x: 0, y: 0)
+
+        /// UIKit clamps the floating cursor vertically to the caret's line,
+        /// the document's only one here, so a drag could not leave the row.
+        /// For the length of the hold the caret spans the view instead.
+        override func caretRect(for position: UITextPosition) -> CGRect {
+            let rect = super.caretRect(for: position)
+            guard floatingStart != nil else { return rect }
+            return CGRect(x: rect.minX, y: bounds.minY, width: rect.width, height: bounds.height)
+        }
+
+        @objc func beginFloatingCursor(at point: CGPoint) {
+            floatingStart = point
+            floatingSent = (0, 0)
+        }
+
+        @objc func updateFloatingCursor(at point: CGPoint) {
+            guard let start = floatingStart else { return }
+            // One cell: the package's caret is ghostty's IME point.
+            let cell = super.caretRect(for: beginningOfDocument).size
+            guard cell.width > 0, cell.height > 0 else { return }
+            let x = Int((point.x - start.x) / cell.width)
+            let y = Int((point.y - start.y) / cell.height)
+            for _ in 0..<abs(x - floatingSent.x) { sendKey(x > floatingSent.x ? .arrowRight : .arrowLeft) }
+            for _ in 0..<abs(y - floatingSent.y) { sendKey(y > floatingSent.y ? .arrowDown : .arrowUp) }
+            floatingSent = (x, y)
+        }
+
+        @objc func endFloatingCursor() { floatingStart = nil }
 
         /// Kept past `super`: with inline selection on, a single tap is a
         /// recognizer that fires only once a double tap has failed, well

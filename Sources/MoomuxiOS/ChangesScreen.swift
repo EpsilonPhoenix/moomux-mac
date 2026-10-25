@@ -120,6 +120,8 @@ struct FileDiffScreen: View {
     /// A markdown file rendered before and after, instead of its patch. Per
     /// screen, like MergeRight: a file the stepper swaps in opens as a diff.
     @State private var showsRendered = false
+    /// The patch's code size, written by a pinch. DiffKit's own default is 12.
+    @AppStorage("diffCodeSize") private var codeSize = 12.0
 
     // Find, across the whole change. The query outlives a file swap — that is
     // what lets stepping past the last match carry on into the next file.
@@ -153,7 +155,8 @@ struct FileDiffScreen: View {
                 if showsRendered && isMarkdown {
                     RenderedMarkdown(app: app, sessionID: sessionID, file: file, base: diff.base)
                 } else {
-                    PatchView(file: file, hidesWhitespaceChanges: hidesWhitespace)
+                    PatchView(file: file, codeSize: codeSize, hidesWhitespaceChanges: hidesWhitespace)
+                        .patchPinchZoom($codeSize)
                         .patchFind(query, current: matches.indices.contains(current) ? matches[current] : nil)
                         .patchScrollTarget(target)
                         .overlay(alignment: .bottomLeading) {
