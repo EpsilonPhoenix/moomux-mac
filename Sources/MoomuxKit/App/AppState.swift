@@ -120,6 +120,8 @@ public final class AppState {
     public private(set) var appUpdate: String?
     /// The same for the core, off the snapshot.
     public private(set) var coreUpdate: CoreUpdate?
+    /// The core's release notes, off the snapshot.
+    public private(set) var coreWhatsNew: CoreWhatsNew?
     public private(set) var config: Config?
     /// Which agents the core can launch, and what to offer in a model or
     /// thinking-level picker for each. Fetched once — it is a static table in
@@ -240,6 +242,8 @@ public final class AppState {
         /// seen; nil shows the running release alone. Help passes "0", which
         /// every version is newer than, for the whole baked history.
         case whatsNew(after: String?)
+        /// The core's notes for the releases since the core version last seen.
+        case coreWhatsNew([WhatsNew.Release])
         case acknowledgements
         public var id: Self { self }
     }
@@ -1487,6 +1491,7 @@ public final class AppState {
         if drawable != usage { usage = drawable }
         if snapshot.usageSetup != usageSetup { usageSetup = snapshot.usageSetup }
         if snapshot.updateAvailable != coreUpdate { coreUpdate = snapshot.updateAvailable }
+        if snapshot.whatsNew != coreWhatsNew { coreWhatsNew = snapshot.whatsNew }
         adopt(sessions: snapshot.sessions)
         // The detail pane's counts and the row badge for what is on screen:
         // loadStatus is a no-op until the entry is `selectedStatusRefresh` old.

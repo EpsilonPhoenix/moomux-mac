@@ -811,3 +811,6 @@ Not questions, just things out of step. Fix them and remove them from here.
 3. **The phone does not draw empty folders.** The Mac's folder-first sidebar adds a header for a
    folder nothing is filed in (`Layout.withEmptyFolders`), so it can be renamed or deleted. The
    phone's list does not, so such a folder can only be removed from the Mac.
+4. **The phone does not show the core's release notes.** The Mac opens a second What's New sheet
+   for the core's own notes (`Snapshot.whatsNew`, its own `WhatsNew.coreSeenKey`) once per core
+   upgrade. The snapshot reaches the phone's store too, but nothing there presents it.
