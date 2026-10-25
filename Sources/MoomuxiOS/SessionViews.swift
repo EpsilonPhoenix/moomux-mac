@@ -95,6 +95,22 @@ struct SessionListView: View {
         }
     }
 
+    /// Go to the session a tapped banner named, once the app knows enough to
+    /// choose between its pane and its detail: the session must be in the
+    /// list and its live state in, or a cold launch lands on detail for a
+    /// session that is in fact running. Until then `selectedSessionID` stays
+    /// set and the `onChange`s below call this again.
+    private func openTappedSession() {
+        guard let id = app.selectedSessionID, app.connection == .connected,
+              let session = app.session(id: id), app.views[id] != nil else { return }
+        // Same gate as the row tap: attaching revives a parked session and
+        // relaunches its agent, and a banner can outlive the tmux it was
+        // raised for.
+        if app.isAlive(session) { showTerminal(id) }
+        else if path.last != .detail(id) { path.append(.detail(id)) }
+        app.selectedSessionID = nil
+    }
+
     /// Show a session's pane, reusing the one already in the stack rather
     /// than pushing a second.
     ///
@@ -270,7 +286,10 @@ struct SessionListView: View {
                     SessionDetailView(app: app, sessionID: id, showTerminal: showTerminal,
                                       leaveTerminal: leaveTerminal)
                 case let .terminal(id):
+                    // `.id`: swapping A's pane for B's in the same stack slot must
+                    // build a new view, since the attach is made once per view.
                     TerminalScreen(app: app, sessionID: id) { path.append($0) }
+                        .id(id)
                 case let .changes(id): ChangesScreen(app: app, sessionID: id)
                 case let .fileDiff(id, file):
                     // Past the Changes list too: at the end of the files it has nothing left to offer.
@@ -358,15 +377,12 @@ struct SessionListView: View {
             // `Notifier` has no way to reach the stack — it sets the
             // selection, which on the Mac *is* the navigation. Cleared after,
             // so tapping a banner for the same session twice works.
-            .onChange(of: app.selectedSessionID) { _, id in
-                guard let id else { return }
-                // Same gate as the row tap: attaching revives a parked
-                // session and relaunches its agent, and a banner can outlive
-                // the tmux it was raised for.
-                if let session = app.session(id: id), app.isAlive(session) { showTerminal(id) }
-                else { path.append(.detail(id)) }
-                app.selectedSessionID = nil
-            }
+            .onChange(of: app.selectedSessionID, initial: true) { _, _ in openTappedSession() }
+            // A tap that cold-launched the app lands before the session list
+            // does; retry once it is there.
+            .onChange(of: app.connection) { _, _ in openTappedSession() }
+            .onChange(of: app.views.count) { _, _ in openTappedSession() }
+            .onChange(of: app.sessions.count) { _, _ in openTappedSession() }
             .overlay {
                 // `.connected`, not merely "not down": `connection` stays
                 // `.connecting` until the first call returns, and a remembered

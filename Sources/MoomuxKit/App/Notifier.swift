@@ -134,6 +134,37 @@ public final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    #if os(iOS)
+    /// iOS wants the delegate set before launch finishes, but the real one
+    /// belongs to an `AppState` that only exists once the user is connected.
+    /// Install this from the app's `init`; `deinit` puts it back whenever a
+    /// store goes away (Disconnect, a throwaway background-refresh store), so
+    /// a tap is never left without a delegate.
+    public static func listenForLaunchTap() {
+        guard Bundle.main.bundleIdentifier != nil else { return }
+        UNUserNotificationCenter.current().delegate = EarlyTap.shared
+    }
+
+    /// Called by the store that owns the UI, not by every `Notifier`: a
+    /// throwaway store would take the tap and free it with itself.
+    public func claimLaunchTap() {
+        EarlyTap.shared.sink = { [weak self] id in self?.app?.selectedSessionID = id }
+        if let id = EarlyTap.shared.pending {
+            EarlyTap.shared.pending = nil
+            app?.selectedSessionID = id
+        }
+    }
+
+    deinit {
+        guard Bundle.main.bundleIdentifier != nil else { return }
+        let center = UNUserNotificationCenter.current()
+        // A weak delegate that is mid-dealloc reads as nil.
+        if center.delegate == nil || center.delegate === self { center.delegate = EarlyTap.shared }
+        // `deinit` is nonisolated; the sink is only touched on the main actor.
+        Task { @MainActor in EarlyTap.shared.sink = nil }
+    }
+    #endif
+
     // MARK: The pure half
 
     /// The transitions worth acting on: sessions that just entered
@@ -184,3 +215,34 @@ public final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         assert(bannered(started, focused: a).map(\.id) == [b], "the session in front is not news")
     }
 }
+
+#if os(iOS)
+/// Catches a banner tap that lands while no `Notifier` is the delegate — a cold
+/// launch, or after Disconnect — and hands it to the store once one claims it.
+private final class EarlyTap: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
+    static let shared = EarlyTap()
+    // Main actor only; the delegate callbacks hop there before touching them.
+    @MainActor var pending: String?
+    @MainActor var sink: ((String) -> Void)?
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler done: @escaping () -> Void
+    ) {
+        let id = response.notification.request.identifier
+        Task { @MainActor in
+            if let sink { sink(id) } else { pending = id }
+            done()
+        }
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler done: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        done([.banner, .list, .sound])
+    }
+}
+#endif

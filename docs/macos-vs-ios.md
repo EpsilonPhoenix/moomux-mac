@@ -174,7 +174,7 @@ UIKit is an `#if` in the file that needs it:
 | theme colours (`SessionTheme`) | `NSColor(name:)` dynamic provider | `UIColor { traits in … }` |
 | foreground banner rule (`Notifier.report`) | none for the selected session in the active app | none for the pane on screen (`paneOnScreen`) |
 | `willPresent` (`Notifier`) | not implemented: the system default | shows the banner in the foreground |
-| notification tap (`Notifier`) | `NSApp.activate()`, order the window front | iOS brings the app forward itself |
+| notification tap (`Notifier`) | `NSApp.activate()`, order the window front | iOS brings the app forward itself; a tap on a dead or disconnected app is caught by `EarlyTap` and the list retries until the session and its live state are in |
 | What's New sheet | fixed frame | detents |
 | `ToolPath` | the whole file | compiled out (`Process` is unavailable) |
 
