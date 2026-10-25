@@ -18,8 +18,11 @@ final class PaneKeyBar: UIView {
     /// that takes an argument is left open, with a trailing space, for the user
     /// to finish. Edit the list to change the menu; nothing else reads it.
     static let snippets: [(text: String, submit: Bool)] = [
-        ("/clear", true), ("/compact", true), ("continue", true), ("y", true),
-        ("/spawn ", false),
+        ("/clear", true), ("/compact", true), ("/model", true),
+        // Parks the session, so a menu tap alone must not do it.
+        ("/kill", false),
+        ("/tag", true), ("/reseed", true), ("/spawn ", false),
+        ("y", true), ("continue", true),
     ]
 
     weak var terminal: UITerminalView? {
@@ -209,6 +212,8 @@ final class PaneKeyBar: UIView {
             }
         })
         button.showsMenuAsPrimaryAction = true
+        // The menu opens upward; the default would flip the list.
+        button.preferredMenuElementOrder = .fixed
         return button
     }
 

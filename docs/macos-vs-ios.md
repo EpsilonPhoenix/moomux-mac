@@ -495,7 +495,9 @@ clips and hit-tests to the bar — and its keys repeat while held. A handle on i
 the position is kept in `UserDefaults`. New Session opens the same sheet without jumping to
 the new session (the user is attached to another one), and Changes is the toolbar's own route.
 Snippets (`PaneKeyBar.snippets`) are pasted and then sent Return as a keystroke, except one marked
-not to submit (`/spawn `, which takes an argument). Paste and Snippets clear an armed Ctrl/Alt first.
+not to submit (`/spawn `, which takes an argument, and `/kill`, which parks the session, so it
+waits for the user's own Return). The list carries moomux's own slash commands: `/spawn`, `/tag`,
+`/reseed`, `/kill`. Paste and Snippets clear an armed Ctrl/Alt first.
 Ceiling: the punctuation keys the package's bar had (`| ~ /`) are gone.
 
 ## F. Links and files
