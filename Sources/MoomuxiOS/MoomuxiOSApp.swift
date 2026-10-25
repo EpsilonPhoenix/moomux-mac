@@ -22,6 +22,7 @@ struct MoomuxiOSApp: App {
     /// — refresh then never runs, which looks exactly like iOS throttling it.
     init() {
         BackgroundRefresh.register()
+        Notifier.listenForLaunchTap()
     }
 
     var body: some Scene {

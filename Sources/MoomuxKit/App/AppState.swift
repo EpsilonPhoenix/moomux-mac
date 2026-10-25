@@ -1183,6 +1183,9 @@ public final class AppState {
         // from an unbundled binary, where reaching the notification center at
         // all would trap.
         notifier = Notifier(app: self)
+        #if os(iOS)
+        notifier?.claimLaunchTap()
+        #endif
         tasks = [
             // The cold-start pull: the stream is the render path, but the
             // first snapshot is a beat away and a core too old to stream at
