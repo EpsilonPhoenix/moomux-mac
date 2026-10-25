@@ -801,3 +801,6 @@ Not questions, just things out of step. Fix them and remove them from here.
    the debugger's `_simulateLaunchForTaskWithIdentifier:` is the way to force one.
 2. **The phone has no "Claude usage" setup row.** The Mac's Settings explains a missing usage
    (`UsageSetup.advice`, in the Kit); the phone's ⋯ menu should show the same lines.
+3. **The phone does not draw empty folders.** The Mac's folder-first sidebar adds a header for a
+   folder nothing is filed in (`Layout.withEmptyFolders`), so it can be renamed or deleted. The
+   phone's list does not, so such a folder can only be removed from the Mac.
