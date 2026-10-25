@@ -893,9 +893,8 @@ Decisions, not oversights. Don't "fix" these without being asked.
   daemonized core (see the "Open in terminal" bullet) — `EnsureTmux` is the half this app wants. (`SetSessionStatusTitle`
   and `StartFirstPrompt` are gone from the wire entirely — the core keeps tmux window titles in
   step itself, and the first prompt is part of the `CreateSession` transaction.) The other TUI-only
-  settings (theme, appearance, auto-tmux) are here because they are one-line flags on a shared
-  config file and a front end that could edit projects but not those would stop somewhere odd; a
-  flag whose *only* meaning is the shape of the TUI's own panel is over that line.
+  settings (auto-tmux, TUI appearance) are deliberately not here: they change nothing in this app,
+  so a control for them is noise. The wire calls and `Config` fields stay for the core's sake.
   **No drag-to-reorder**, though, for sessions or projects: `MoveSession`/`MoveProject` take a ±1
   delta, the lists are plain `List`s, and `onMove` wants index sets over a bound array, so ⌃⌘↑/↓ and
   two chevron buttons are the whole feature for a day less work.
