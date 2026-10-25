@@ -225,7 +225,9 @@ extension AppState {
         let client = client
         Task {
             do {
-                let resolved = try await Task.detached { try client.resolveFile(id: id, path: path) }.value
+                let resolved = try await Task.detached {
+                    try WebLink.firstSuccess(of: path) { try client.resolveFile(id: id, path: $0) }
+                }.value
                 TerminalLink.open(resolved)
             } catch {
                 actionError = error.localizedDescription
@@ -242,7 +244,7 @@ extension AppState {
         Task {
             do {
                 let url = try await Task.detached {
-                    let (resolved, data) = try client.readFile(id: id, path: path)
+                    let (resolved, data) = try WebLink.firstSuccess(of: path) { try client.readFile(id: id, path: $0) }
                     let dir = PreviewFile.root.appending(path: UUID().uuidString)
                     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                     let url = dir.appending(path: PreviewFile.name(for: resolved, data: data))
