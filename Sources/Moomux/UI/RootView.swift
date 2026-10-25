@@ -1638,6 +1638,7 @@ private struct SelectionEdges: View {
 
     var body: some View {
         ZStack {
+            Color.accentColor.opacity(dimmed ? 0.05 : 0.1)
             bar.frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 3)
             bar.frame(maxWidth: .infinity, alignment: .trailing).padding(.trailing, 3)
         }
