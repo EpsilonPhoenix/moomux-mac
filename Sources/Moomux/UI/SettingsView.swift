@@ -529,10 +529,12 @@ private struct GeneralPane: View {
             // field, and a launcher for a Mac app is nothing the TUI could use.
             Section {
                 // The worktree path is appended, so type the command as you
-                // would in a shell minus the directory.
+                // would in a shell minus the directory. The prompt names the
+                // unset state, not an example: a grouped form draws its prompt
+                // dark enough that "diffier" read as already configured.
                 TextField("Diff tool", text: Binding(
                     get: { app.diffTool }, set: { app.diffTool = $0 }),
-                    prompt: Text("diffier"))
+                    prompt: Text("None"))
                 Toggle("Open PRs in MergeRight", isOn: Binding(
                     get: { app.mergeRightLinks }, set: { app.mergeRightLinks = $0 }))
             } header: {
