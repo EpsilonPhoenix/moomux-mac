@@ -77,20 +77,55 @@ enum Theme {
 struct RootView: View {
     @Environment(AppState.self) private var app
 
-    var body: some View {
-        @Bindable var app = app
-        NavigationSplitView {
-            SessionList()
-                .navigationSplitViewColumnWidth(min: 240, ideal: 300)
-        } detail: {
-            // The grid replaces the detail column, not the window, so the
-            // sidebar and the toolbar keep working while it is up.
+    private func showCoreWhatsNew() {
+        guard app.sheet == nil, let core = app.coreWhatsNew else { return }
+        let unseen = WhatsNew.takeUnseen(in: core.releases, current: core.version, key: WhatsNew.coreSeenKey)
+        if unseen.show {
+            app.sheet = .coreWhatsNew(WhatsNew.releases(after: unseen.seen, in: core.releases, current: core.version))
+        }
+    }
+
+    // The grid replaces the detail column, not the window, so the sidebar and
+    // the toolbar keep working while it is up.
+    // The update badge rides the detail, not the window, so a right-hand list
+    // does not end up underneath it.
+    private var detail: some View {
+        Group {
             if app.showGrid {
                 SessionGrid()
             } else if let session = app.session(id: app.selectedSessionID) {
                 SessionDetail(session: session)
             } else {
                 NoSessionSelectedView()
+            }
+        }
+        .overlay(alignment: .bottomTrailing) { UpdateBadge() }
+    }
+
+    var body: some View {
+        @Bindable var app = app
+        Group {
+            if app.sidebarOnRight {
+                // NavigationSplitView has no trailing sidebar, so the right-hand
+                // list is an inspector column. Flipping the split view to
+                // right-to-left looked like less code, but NSToolbar still
+                // splits at the sidebar's width from the left, so every detail
+                // item overflowed into the sidebar's half — measured.
+                NavigationStack { detail }
+                    .inspector(isPresented: $app.sidebarShown) {
+                        // A split view's sidebar column gets this style for
+                        // free; the row bands and accent bars are tuned to it.
+                        SessionList()
+                            .listStyle(.sidebar)
+                            .inspectorColumnWidth(min: 240, ideal: 300, max: 520)
+                    }
+            } else {
+                NavigationSplitView {
+                    SessionList()
+                        .navigationSplitViewColumnWidth(min: 240, ideal: 300)
+                } detail: {
+                    detail
+                }
             }
         }
         // Blank rather than omitted: an unset title falls back to the
@@ -175,11 +210,35 @@ struct RootView: View {
                 }
                 .keyboardShortcut("r")
             }
+            if app.sidebarOnRight {
+                // The split view's own sidebar button goes with the split view.
+                ToolbarItem {
+                    Button {
+                        app.toggleSidebar()
+                    } label: {
+                        // Not `sidebar.right`: Info already wears it.
+                        Label("Toggle Sidebar", systemImage: "list.bullet")
+                    }
+                    .help("Show or hide the session list (⌃⌘S)")
+                }
+            }
         }
         .task {
             app.start()
             let unseen = WhatsNew.takeUnseen()
             if unseen.show { app.sheet = .whatsNew(after: unseen.seen) }
+        }
+        // The core's notes arrive on a snapshot, after the app's own sheet may
+        // already be up; a sheet in the way just means asking again once it closes.
+        .onChange(of: app.coreWhatsNew) { _, _ in showCoreWhatsNew() }
+        // Not at once: an item swapped in mid-dismissal repaints the sheet that
+        // is leaving with the new content, then presents again.
+        .onChange(of: app.sheet) { _, sheet in
+            guard sheet == nil else { return }
+            Task {
+                try? await Task.sleep(for: .milliseconds(600))
+                showCoreWhatsNew()
+            }
         }
         // `hint` is what the last *session-less* action had to say, rendered
         // in whichever Info pane is showing, so it must not outlive the
@@ -236,6 +295,8 @@ struct RootView: View {
                 SettingsSheet()
             case let .whatsNew(after):
                 WhatsNewSheet(releases: WhatsNew.releases(after: after))
+            case let .coreWhatsNew(releases):
+                WhatsNewSheet(releases: releases, subject: "the core")
             case .acknowledgements:
                 AcknowledgementsSheet()
             }
@@ -687,12 +748,13 @@ private struct SessionList: View {
             // a core too old to send a folder-first layout keeps this one.
             if app.folderView { folderFirst } else { projectFirst }
         }
+        .background(NoSelectionHighlight())
         .searchable(text: $app.searchQuery, placement: .sidebar, prompt: "Find a session")
         // `.searchFocused` is macOS 15; the bundle targets 14. The field is
         // there and clickable either way — only ⌘F is gated, and
         // `SessionCommands` hides the menu item on the same check so there is
         // no command that does nothing.
-        .modifier(FocusSearchOnRequest(token: app.focusSearchToken))
+        .modifier(FocusSearchOnRequest())
         .overlay {
             if app.sessions.isEmpty {
                 EmptyState()
@@ -716,8 +778,7 @@ private struct SessionList: View {
             // is collapsed at launch — SwiftUI starts expanded, so the
             // first click on a folded project expanded ours and collapsed
             // its, and the rows stayed away. Plain rows have no such
-            // state, and they are what lets a collapsed project keep the
-            // attached session's row on screen. Both measured.
+            // state. Both measured.
             ProjectHeader(
                 name: group.project,
                 hidden: group.sessions.count - app.shownSessions(
@@ -826,19 +887,68 @@ private struct FolderProjectHeader: View {
     }
 }
 
-/// Puts the caret in the sidebar's search field whenever `token` changes.
+/// Stops the sidebar's table drawing its selection pill, which is grey — the
+/// same tone as a header band. Selection itself is untouched (clicks, arrow
+/// keys, `List(selection:)`); the selected row draws its own accent edge.
+///
+/// SwiftUI has no switch for this, so it reaches the `NSTableView` behind the
+/// `List`: it walks up from a background view until an ancestor holds one.
+/// Ceiling: a SwiftUI that stops backing `List` with an `NSTableView` makes
+/// this a no-op and the pill comes back, which is harmless.
+private struct NoSelectionHighlight: NSViewRepresentable {
+    final class Coordinator { weak var table: NSTableView? }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> NSView { NSView() }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        // This runs on every body pass (each 2s poll), so a table found once is
+        // remembered; only a missing or replaced one is searched for again.
+        if let table = context.coordinator.table, table.window != nil {
+            if table.selectionHighlightStyle != .none { table.selectionHighlightStyle = .none }
+            return
+        }
+        // The table is not built yet on the first pass, so look a beat later.
+        let coordinator = context.coordinator
+        DispatchQueue.main.async {
+            var ancestor = view.superview
+            while let a = ancestor {
+                if let table = Self.table(in: a) {
+                    table.selectionHighlightStyle = .none
+                    coordinator.table = table
+                    return
+                }
+                ancestor = a.superview
+            }
+        }
+    }
+
+    private static func table(in view: NSView) -> NSTableView? {
+        if let t = view as? NSTableView { return t }
+        for sub in view.subviews { if let t = table(in: sub) { return t } }
+        return nil
+    }
+}
+
+/// Puts the caret in the sidebar's search field whenever
+/// `searchFocusPending` is set, including when it was set by the update that
+/// mounted the list.
 ///
 /// A `ViewModifier` only so the macOS 15 availability check has somewhere to
 /// live that is not the middle of a modifier chain.
 private struct FocusSearchOnRequest: ViewModifier {
-    let token: Int
+    @Environment(AppState.self) private var app
     @FocusState private var focused: Bool
 
     func body(content: Content) -> some View {
         if #available(macOS 15, *) {
             content
                 .searchFocused($focused)
-                .onChange(of: token) { _, _ in focused = true }
+                .onChange(of: app.searchFocusPending, initial: true) { _, pending in
+                    guard pending else { return }
+                    focused = true
+                    app.searchFocusPending = false
+                }
         } else {
             content
         }
@@ -855,6 +965,11 @@ private struct ProjectHeader: View {
         // The header is not a selectable row, so a tap gesture here does not
         // steal the List's selection the way one on a row would.
         let expanded = app.projectExpanded(name)
+        // The selected session's row is hidden by this collapse, and its
+        // terminal is still on screen — the header says so with the same edges.
+        let holdsSelection = !expanded && app.session(id: app.selectedSessionID).map {
+            $0.project == name && (!app.folderView || $0.folder.isEmpty)
+        } == true
         HStack(spacing: 4) {
             // No font of its own: the row's is the list font, so the chevron
             // draws at the size every other icon in the sidebar does. The
@@ -869,7 +984,11 @@ private struct ProjectHeader: View {
                 .frame(width: SidebarGrid.icon(app.listFontSize))
             Text(name)
         }
-        .font(Theme.list(app.listFontFamily, app.listFontSize))
+        // Small caps on a band: the tint is what says "group" now that
+        // sessions no longer repeat the header's weight and size.
+        .font(Theme.list(app.listFontFamily, max(9, app.listFontSize - 2)).weight(.semibold))
+        .textCase(.uppercase)
+        .padding(.vertical, 3)
         // Level 0 in both lenses: a project header is either the top of the
         // list or the top of the trailing loose block.
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -878,14 +997,31 @@ private struct ProjectHeader: View {
         .dropDestination(for: String.self) { ids, _ in
             app.drop(ids, into: "", project: name)
         } isTargeted: { targeted = $0 }
-        .listRowBackground(targeted ? SessionTheme.dropTarget : nil)
+        .listRowBackground(targeted ? AnyView(SessionTheme.dropTarget) : AnyView(band(expanded: expanded, holdsSelection: holdsSelection)))
         .contextMenu {
             Button("New Folder…") { app.sheet = .newFolder(assign: nil) }
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(expanded || hidden == 0 ? name : "\(name), collapsed, \(hidden) sessions")
+        .accessibilityLabel(expanded || hidden == 0 ? name
+            : "\(name), collapsed, \(hidden) sessions"
+                + (holdsSelection ? ", contains the selected session" : ""))
         .accessibilityAction { app.setProject(name, expanded: !expanded) }
+    }
+
+    /// A tab on its group: rounded top, square bottom while the sessions sit
+    /// under it. Collapsed there is nothing under it, so it closes all four
+    /// corners and steps in so neighbouring projects do not fuse. Same shape
+    /// as the phone's header band.
+    private func band(expanded: Bool, holdsSelection: Bool) -> some View {
+        let r: CGFloat = expanded ? 0 : 12
+        return ZStack {
+            UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: r,
+                                   bottomTrailingRadius: r, topTrailingRadius: 12)
+                .fill(Color.primary.opacity(0.1))
+                .padding(.vertical, expanded ? 0 : 1)
+            if holdsSelection { SelectionEdges(height: app.listFontSize * 1.5) }
+        }
     }
 }
 
@@ -950,44 +1086,49 @@ private struct SessionRow: View {
     /// header, 2 under a folder-then-project pair.
     var level = 0
 
+    @Environment(\.controlActiveState) private var activeState
+
+    /// An accent bar on each outer edge of the selected row — the one thing in
+    /// the list that is not grey. Its height follows the list font, and it
+    /// dims with the window: the system's own pill did both.
+    private var selectionEdge: some View {
+        SelectionEdges(height: app.listFontSize * 1.5, dimmed: activeState != .key)
+    }
+
     var body: some View {
         let state = app.state(for: session)
-        // The dot belongs to the name, so it lives on the name's own row and is
-        // centred on it — baseline-aligning it against a two-line VStack put it
-        // a point or two off the name, and more so the larger the font gets.
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: SidebarGrid.gap) {
-                Image(systemName: state.symbol)
-                    .foregroundStyle(Theme.color(state, app.palette))
-                    .frame(width: SidebarGrid.icon(app.listFontSize))
-                    .help(app.label(for: session))
-                Text(session.name)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            // Second row, right aligned, and always there — the hidden glyph
-            // holds its height when there are no badges. A row whose height
-            // changed in the same List update that moved rows crashed AppKit
-            // (NSTableRowData rowIndexForView, null deref, macOS 27.0), and a
-            // badge appearing on a snapshot was what changed it.
+        // One line, like the phone: state icon, name, badges right-aligned. A
+        // long name truncates before the badges do. The row's height is the
+        // name's alone — the badges are set smaller — so a badge appearing on
+        // a snapshot cannot change it (a row whose height changed in the same
+        // List update that moved rows crashed AppKit: NSTableRowData
+        // rowIndexForView, null deref, macOS 27.0).
+        HStack(spacing: SidebarGrid.gap) {
+            Image(systemName: state.symbol)
+                .foregroundStyle(Theme.color(state, app.palette))
+                .frame(width: SidebarGrid.icon(app.listFontSize))
+                .help(app.label(for: session))
+            Text(session.name)
+                .foregroundStyle(state == .parked ? .secondary : .primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
             // Order, colours and rules are the Kit's; the tags are links here.
-            ZStack(alignment: .trailing) {
-                Image(systemName: "ticket").hidden()
-                SessionBadges(app: app, session: session, spacing: 10) { symbol, link, help in
-                    TagIcon(symbol: symbol, link: link, help: help)
-                }
+            // Badges track the name 3pt down — what .caption (10pt) was under
+            // .body (13pt) before any of this was adjustable.
+            SessionBadges(app: app, session: session, spacing: 10) { symbol, link, help in
+                TagIcon(symbol: symbol, link: link, help: help)
             }
-                // Badges track the name 3pt down — what .caption (10pt) was
-                // under .body (13pt) before any of this was adjustable.
             .font(Theme.list(app.listFontFamily, max(9, app.listFontSize - 3)))
-            .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        // On the VStack so the state icon scales with the name; the badge
-        // row sets its own size below.
         .font(Theme.list(app.listFontFamily, app.listFontSize))
         .padding(.vertical, 2)
-        .padding(.leading, SidebarGrid.rowIndent(level, app.listFontSize))
+        // The system's selection pill is switched off (`NoSelectionHighlight`):
+        // it was grey, the same tone as a header band.
+        .listRowBackground(app.selectedSessionID == session.id ? AnyView(selectionEdge) : nil)
+        // `level - 1`: the dot sits straight under its header's icon, not a
+        // step in from it — the band is what says which header it belongs to.
+        .padding(.leading, SidebarGrid.rowIndent(max(0, level - 1), app.listFontSize))
         // The payload is the session id as a plain string — no custom UTType,
         // which would need an Info.plist declaration to be worth anything.
         // The cost is that dragging a row into a text field types its id;
@@ -1006,28 +1147,21 @@ private struct SessionRow: View {
         })
         // Closes over `session`, never over the selection: right-clicking an
         // unselected row has to act on the row you clicked.
+        //
+        // The iPhone's session menu order (`SessionActions`): links, then
+        // filing and naming, then what ends the session. The Mac-only tools
+        // sit between the last two.
         .contextMenu {
-            Button("Review Changes") { app.review(session) }
-                .disabled(!app.canReview(session))
-            Button("Open in Diff Tool") { app.openDiffTool(session) }
-                .disabled(!app.canOpenDiffTool(session))
-            Button("Edit…") { app.sheet = .edit(session) }
-            Button("Tags…") { app.sheet = .tags(session) }
-            if let link = app.installedMergeRightLink(for: session) {
-                Button("Open in MergeRight") { NSWorkspace.shared.open(link) }
+            // Only a value the inspector would make a link (`Field`) appears.
+            let ticket = session.ticket.flatMap { TerminalLink.resolve($0) != nil ? $0 : nil }
+            let pr = session.pr.flatMap { TerminalLink.resolve($0) != nil ? $0 : nil }
+            let mergeRight = app.installedMergeRightLink(for: session)
+            if let ticket { Button("Ticket") { app.openTag(ticket) } }
+            if let pr { Button("Pull Request") { app.openTag(pr) } }
+            if let mergeRight {
+                Button("Open in MergeRight") { NSWorkspace.shared.open(mergeRight) }
             }
-            Button("Copy Path") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(session.worktreePath, forType: .string)
-            }
-            .disabled(session.worktreePath.isEmpty)
-            Divider()
-            Button(session.pinned ? "Unpin" : "Pin to Top") {
-                app.setPinned(session, !session.pinned)
-            }
-            Button(session.archived ? "Unarchive" : "Archive") {
-                app.setArchived(session, !session.archived)
-            }
+            if ticket != nil || pr != nil || mergeRight != nil { Divider() }
             Menu("Folder") {
                 Button("None") { app.setFolder(session, to: "") }
                     .disabled(session.folder.isEmpty)
@@ -1042,6 +1176,24 @@ private struct SessionRow: View {
                     app.sheet = .newFolder(assign: session)
                 }
             }
+            Button(session.pinned ? "Unpin" : "Pin to Top") {
+                app.setPinned(session, !session.pinned)
+            }
+            Button(session.archived ? "Unarchive" : "Archive") {
+                app.setArchived(session, !session.archived)
+            }
+            Button("Edit…") { app.sheet = .edit(session) }
+            Button("Tags…") { app.sheet = .tags(session) }
+            Divider()
+            Button("Open in Diff Tool") { app.openDiffTool(session) }
+                .disabled(!app.canOpenDiffTool(session))
+            Button("Review Changes") { app.review(session) }
+                .disabled(!app.canReview(session))
+            Button("Copy Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(session.worktreePath, forType: .string)
+            }
+            .disabled(session.worktreePath.isEmpty)
             Button("Move Up") { app.move(session, by: -1) }
                 .disabled(!app.canReorder)
             Button("Move Down") { app.move(session, by: 1) }
@@ -1423,6 +1575,28 @@ private struct ConnectionBadge: View {
     }
 }
 
+/// Bottom-right, only while the app or the core is out of date. Hover for which and how
+/// to update; the cask follows every tag, so `brew upgrade` is the whole fix.
+private struct UpdateBadge: View {
+    @Environment(AppState.self) private var app
+
+    var body: some View {
+        let lines = [
+            app.appUpdate.map { "Moomux \(WhatsNew.version) → \($0)" },
+            app.coreUpdate.map { "Core \($0.current) → \($0.latest)" },
+        ].compactMap { $0 }
+        if !lines.isEmpty {
+            Label("Update available", systemImage: "arrow.down.circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(.regularMaterial, in: Capsule())
+                .padding(10)
+                .help(lines.joined(separator: "\n"))
+        }
+    }
+}
+
 /// Claude's 5h and weekly quota, when the core serves one. Absent draws
 /// nothing — almost nobody running this app runs agent-usage. Click for every
 /// window and when it resets: the phone's menu, as a popover. A tooltip alone
@@ -1469,7 +1643,7 @@ struct MenuBarContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(app.visibleSessions.filter { app.isAlive($0) }) { session in
+            ForEach(app.menuBarSessions) { session in
                 Button {
                     app.selectedSessionID = session.id
                     NSApp.activate()
@@ -1488,8 +1662,8 @@ struct MenuBarContent: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 5)
             }
-            if app.visibleSessions.isEmpty {
-                Text(app.connection.isDown ? "moomux serve isn't running" : "No sessions")
+            if app.menuBarSessions.isEmpty {
+                Text(app.connection.isDown ? "moomux serve isn't running" : "Nothing needs you")
                     .foregroundStyle(.secondary)
                     .padding(12)
             }
@@ -1500,5 +1674,24 @@ struct MenuBarContent: View {
                 .padding(.bottom, 8)
         }
         .frame(width: 320)
+    }
+}
+
+/// An accent bar on each outer edge of a row: the selected session's, and the
+/// header that is holding it while collapsed.
+private struct SelectionEdges: View {
+    let height: CGFloat
+    var dimmed = false
+
+    var body: some View {
+        ZStack {
+            Color.accentColor.opacity(dimmed ? 0.05 : 0.1)
+            bar.frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 3)
+            bar.frame(maxWidth: .infinity, alignment: .trailing).padding(.trailing, 3)
+        }
+    }
+
+    private var bar: some View {
+        Capsule().fill(Color.accentColor.opacity(dimmed ? 0.45 : 1)).frame(width: 3, height: height)
     }
 }

@@ -15,12 +15,12 @@ import SwiftUI
 /// else from MoomuxKit — so the file can be copied into another app as is. The
 /// wiring (a sheet, a menu item, a launch check) is per app.
 public enum WhatsNew {
-    public struct Section: Hashable, Sendable {
+    public struct Section: Hashable, Sendable, Codable {
         public var title: String
         public var items: [String]
     }
 
-    public struct Release: Hashable, Sendable {
+    public struct Release: Hashable, Sendable, Codable {
         public var version: String
         public var sections: [Section]
     }
@@ -36,7 +36,9 @@ public enum WhatsNew {
         return parse(text)
     }()
 
-    private static let seenKey = "WhatsNew.lastSeenVersion"
+    public static let seenKey = "WhatsNew.lastSeenVersion"
+    /// The core's own, apart from the app's: the two versions are unrelated.
+    public static let coreSeenKey = "WhatsNew.lastSeenCoreVersion"
 
     /// The releases newer than `seen`, up to the running one. Nothing seen yet
     /// — a fresh install, or the first upgrade to a version with this sheet —
@@ -53,10 +55,10 @@ public enum WhatsNew {
     /// one. Marks this one seen as it answers, so quitting with the sheet up
     /// does not show it again.
     public static func takeUnseen(_ defaults: UserDefaults = .standard, in all: [Release] = releases,
-                                  current: String = version) -> (show: Bool, seen: String?) {
-        let seen = defaults.string(forKey: seenKey)
+                                  current: String = version, key: String = seenKey) -> (show: Bool, seen: String?) {
+        let seen = defaults.string(forKey: key)
         guard !all.isEmpty, seen != current else { return (false, seen) }
-        defaults.set(current, forKey: seenKey)
+        defaults.set(current, forKey: key)
         return (!releases(after: seen, in: all, current: current).isEmpty, seen)
     }
 
@@ -162,6 +164,18 @@ public enum WhatsNew {
         assert(takeUnseen(defaults, in: all, current: "0.0.97") == (true, "0.0.9"))
 
         assert(text("See [docs](file:///etc/passwd) and `code`").link == nil)
+        // The core's notes keep their own mark, so the app's seen version never
+        // hides them, nor theirs the app's.
+        assert(takeUnseen(defaults, in: all, current: "0.0.97", key: coreSeenKey) == (true, nil))
+        assert(takeUnseen(defaults, in: all, current: "0.0.97", key: coreSeenKey) == (false, "0.0.97"))
+        assert(defaults.string(forKey: seenKey) == "0.0.97", "the core's check leaves the app's mark alone")
+        assert(takeUnseen(defaults, in: [], current: "0.6.66", key: coreSeenKey) == (false, "0.0.97"),
+               "a core with no notes marks nothing seen")
+        assert(takeUnseen(defaults, in: all, current: "0.0.10", key: coreSeenKey) == (false, "0.0.97"))
+        let decoded = try? JSONDecoder().decode([Release].self, from:
+            Data(#"[{"version":"0.6.66","sections":[{"title":"","items":["x"]}]}]"#.utf8))
+        assert(decoded == [Release(version: "0.6.66", sections: [Section(title: "", items: ["x"])])])
+
         assert(String(text("See [docs](https://x) now").characters) == "See docs now")
     }
 }
@@ -169,12 +183,18 @@ public enum WhatsNew {
 public struct WhatsNewSheet: View {
     @Environment(\.dismiss) private var dismiss
     let releases: [WhatsNew.Release]
+    /// What the notes are for when it is not the app itself, e.g. "the core".
+    let subject: String
 
-    public init(releases: [WhatsNew.Release]) { self.releases = releases }
+    public init(releases: [WhatsNew.Release], subject: String = "") {
+        self.releases = releases
+        self.subject = subject
+    }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(releases.count == 1 ? "What's New in \(releases[0].version)" : "What's New")
+            Text(releases.count == 1 ? "What's New in \(subject.isEmpty ? "" : subject + " ")\(releases[0].version)"
+                 : "What's New" + (subject.isEmpty ? "" : " in \(subject)"))
                 .font(.title2.bold())
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {

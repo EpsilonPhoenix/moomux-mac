@@ -97,6 +97,9 @@ public final class AppState {
     /// and PR status. Replaced wholesale on every snapshot — it is absolute
     /// state, not a delta, and no longer a per-agent partial to merge.
     public private(set) var views: [Session.ID: SessionView] = [:]
+    /// When this client first saw each session in its current state. The wire
+    /// carries no such timestamp, so it is local: a launch counts as entering.
+    @ObservationIgnored private var stateSince: [Session.ID: (state: AgentState, at: Date)] = [:]
     /// Project name → its sessions laid out as display rows, folder headers
     /// spliced in — `sessionview.Rows`, derived once in the core. Empty until
     /// the first snapshot, and empty from a core older than folders; both are
@@ -112,6 +115,13 @@ public final class AppState {
     public private(set) var usage: Usage?
     /// Why there is no usage, off the snapshot — Settings' "Claude usage" row.
     public private(set) var usageSetup: String?
+    /// A newer release of this app than the one running, from GitHub. Mac
+    /// only: the phone updates through TestFlight, not the cask.
+    public private(set) var appUpdate: String?
+    /// The same for the core, off the snapshot.
+    public private(set) var coreUpdate: CoreUpdate?
+    /// The core's release notes, off the snapshot.
+    public private(set) var coreWhatsNew: CoreWhatsNew?
     public private(set) var config: Config?
     /// Which agents the core can launch, and what to offer in a model or
     /// thinking-level picker for each. Fetched once — it is a static table in
@@ -130,6 +140,16 @@ public final class AppState {
     /// pane shows. Two shell-outs per entry, so it is fetched on selection
     /// rather than polled.
     public private(set) var statuses: [Session.ID: MoomuxClient.SessionStatus] = [:]
+    /// When each `statuses` entry was fetched. An entry older than
+    /// `statusTTL` stops overriding the snapshot's badges, which keep moving.
+    private var statusFetchedAt: [Session.ID: Date] = [:]
+    /// Just past the core's own ~1 minute git cache: long enough to beat the
+    /// snapshot after a commit, short enough that a stale answer cannot outlive it.
+    static let statusTTL: TimeInterval = 75
+    /// How often the selected session's status is refetched on the snapshot
+    /// tick: well inside `statusTTL`, so its badge never falls back mid-view.
+    static let selectedStatusRefresh: TimeInterval = 30
+    @ObservationIgnored private var statusInFlight: Set<Session.ID> = []
     /// `Diff`, split into files, for sessions whose changes have been opened.
     /// Fetched on open and on pull-to-refresh, never polled: each one is a
     /// `git diff` on the core. nil inside means "not a git repo", which is not
@@ -155,12 +175,19 @@ public final class AppState {
     /// The sidebar's search field. Non-empty, it replaces `showArchived` as
     /// what the list shows — see `listedSessions`.
     public var searchQuery = ""
-    /// Bumped to put the keyboard in the search field. A token rather than a
-    /// Bool because the menu item has to work when focus is already there and
-    /// the user simply wants to start over; `@FocusState` lives in the view.
-    public private(set) var focusSearchToken = 0
+    /// Set to put the keyboard in the search field; the field clears it once
+    /// focused, so the menu item works again when focus is already there.
+    /// A flag the view consumes rather than a counter it watches: a hidden
+    /// right-hand list mounts in the same update that asks for focus, and a
+    /// view that mounts with the new value never sees it change.
+    /// `@FocusState` lives in the view.
+    public var searchFocusPending = false
 
-    public func focusSearch() { focusSearchToken += 1 }
+    public func focusSearch() {
+        // A hidden right-hand list is out of the view tree, search field and all.
+        if sidebarOnRight { sidebarShown = true }
+        searchFocusPending = true
+    }
     /// Replace the detail column with a read-only snapshot of every live
     /// session. Snapshots and not clients: an attached client sizes the shared
     /// tmux window for everyone, so a grid of six would letterbox six real
@@ -222,6 +249,8 @@ public final class AppState {
         /// seen; nil shows the running release alone. Help passes "0", which
         /// every version is newer than, for the whole baked history.
         case whatsNew(after: String?)
+        /// The core's notes for the releases since the core version last seen.
+        case coreWhatsNew([WhatsNew.Release])
         case acknowledgements
         public var id: Self { self }
     }
@@ -672,6 +701,13 @@ public final class AppState {
         views[session.id]?.state ?? .unknown
     }
 
+    /// The menu bar lists only sessions waiting on you, the longest-waiting first.
+    public var menuBarSessions: [Session] {
+        visibleSessions
+            .filter { isAlive($0) && state(for: $0) == .needsInput }
+            .sorted { (stateSince[$0.id]?.at ?? .distantFuture) < (stateSince[$1.id]?.at ?? .distantFuture) }
+    }
+
     public func quip(for session: Session) -> String? {
         views[session.id]?.quip
     }
@@ -693,8 +729,9 @@ public final class AppState {
     /// the detail pane and a dirty badge on its own row for up to another
     /// minute. nil means nobody could tell — draw nothing, which is not the
     /// same as clean.
-    public func gitBadges(for session: Session) -> (dirty: Bool, unpushed: Bool)? {
-        if let fresh = statuses[session.id], fresh.known {
+    public func gitBadges(for session: Session, now: Date = Date()) -> (dirty: Bool, unpushed: Bool)? {
+        if let fresh = statuses[session.id], fresh.known,
+           let at = statusFetchedAt[session.id], now.timeIntervalSince(at) < Self.statusTTL {
             return (fresh.dirty, fresh.unpushed)
         }
         guard let view = views[session.id], view.gitOK else { return nil }
@@ -870,15 +907,12 @@ public final class AppState {
         config?.projects[name]?.collapsed = collapsed
     }
 
-    /// The rows a project shows: all of them when expanded, and the selected
-    /// session's when collapsed — folding away the session whose terminal is
-    /// on screen reads as the collapse having lost it. Selected *and*
-    /// attached, not merely attached: a pane outlives switching away from it
-    /// (see `SessionDetail`), so every session ever opened would otherwise
-    /// pile up under a collapsed project.
+    /// The rows a project shows: all of them when expanded, none when
+    /// collapsed. Not even the selected session's: a collapsed header with a
+    /// row still under it reads as the collapse not having worked. Its
+    /// terminal stays on screen either way.
     public func shownSessions(of project: String, in sessions: [Session]) -> [Session] {
-        if projectExpanded(project) { return sessions }
-        return sessions.filter { $0.id == selectedSessionID && attachedSessions.contains($0.id) }
+        projectExpanded(project) ? sessions : []
     }
 
     /// The core's layout for a project, or one loose row per session when it
@@ -889,19 +923,11 @@ public final class AppState {
     }
 
     /// What the sidebar draws under a project header: the core's row layout,
-    /// filtered to this window's view. A collapsed project keeps only the
-    /// pinned row, as it always did.
+    /// filtered to this window's view. A collapsed project shows no rows.
     public func sidebarRows(of project: String, in sessions: [Session]) -> [Layout.SidebarRow] {
-        let shown = shownSessions(of: project, in: sessions)
-        guard projectExpanded(project) else { return shown.map { .session($0, folder: "") } }
-        return Layout.rows(layout(of: project, in: allSessions(of: project)), shown: shown,
-                           searching: searching, pinned: pinnedSession)
-    }
-
-    /// The session no collapse may hide: the selected one, while its pane is
-    /// attached. Both lenses exempt it.
-    var pinnedSession: String? {
-        selectedSessionID.flatMap { attachedSessions.contains($0) ? $0 : nil }
+        guard projectExpanded(project) else { return [] }
+        return Layout.rows(layout(of: project, in: allSessions(of: project)),
+                           shown: shownSessions(of: project, in: sessions), searching: searching)
     }
 
     /// Whether the sidebar is drawing the folder-first layout: the preference,
@@ -912,8 +938,13 @@ public final class AppState {
     /// What the folder-first sidebar draws: the core's folder-first layout,
     /// filtered to this window's view.
     public var folderSidebarRows: [Layout.FolderSidebarRow] {
-        Layout.folderRows(folderRows, shown: listedSessions, searching: searching,
-                          collapsedGroups: collapsedGroups, pinned: pinnedSession)
+        let rows = Layout.folderRows(folderRows, shown: listedSessions, searching: searching,
+                                     collapsedGroups: collapsedGroups)
+        // Whole-store membership decides "empty", so a folder whose members are
+        // merely filtered out of this window is not mistaken for one.
+        let used = Set(sessions.map(\.folder))
+        return searching || folderRows.isEmpty ? rows
+            : Layout.withEmptyFolders(rows, names: folderNames.filter { !used.contains($0) })
     }
 
     /// Which (folder, project) groups the folder-first sidebar is folding: the
@@ -1010,11 +1041,31 @@ public final class AppState {
                 sidebarRows(of: $0.project, in: $0.sessions).compactMap { $0.session?.id }
             }
         guard !ids.isEmpty else { return }
-        guard let current = selectedSessionID, let index = ids.firstIndex(of: current) else {
+        guard let current = selectedSessionID else {
             selectedSessionID = ids[0]
             return
         }
-        selectedSessionID = ids[(index + delta + ids.count) % ids.count]
+        if let index = ids.firstIndex(of: current) {
+            selectedSessionID = ids[(index + delta + ids.count) % ids.count]
+            return
+        }
+        // The selection is not on screen — its project or folder is collapsed.
+        // Step from where its row would be, in the direction asked, rather
+        // than jumping to the top whichever way the key points.
+        let all = folderView
+            ? folderRows.filter { $0.kind == .session }.map(\.id)
+            : sessionsByProject.flatMap { group in
+                layout(of: group.project, in: allSessions(of: group.project))
+                    .filter { !$0.isFolder }.map(\.id)
+            }
+        guard let at = all.firstIndex(of: current) else {
+            selectedSessionID = ids[0]
+            return
+        }
+        let after = Array(all[(at + 1)...]) + Array(all[..<at])
+        let order = delta > 0 ? after : after.reversed()
+        let visible = Set(ids)
+        selectedSessionID = order.first(where: visible.contains) ?? ids[0]
     }
 
     /// Manual reordering is meaningless while the core sorts by last-opened —
@@ -1156,12 +1207,25 @@ public final class AppState {
 
     // MARK: Lifecycle
 
+    private func updateLoop() async {
+        #if os(macOS)
+        while !Task.isCancelled {
+            let found = await UpdateCheck.newerVersion(than: WhatsNew.version)
+            if found != appUpdate { appUpdate = found }
+            try? await Task.sleep(for: .seconds(6 * 3600))
+        }
+        #endif
+    }
+
     public func start() {
         guard tasks.isEmpty else { return }
         // Here rather than in `init`: `--selftest` exits inside `bootstrap()`
         // from an unbundled binary, where reaching the notification center at
         // all would trap.
         notifier = Notifier(app: self)
+        #if os(iOS)
+        notifier?.claimLaunchTap()
+        #endif
         tasks = [
             // The cold-start pull: the stream is the render path, but the
             // first snapshot is a beat away and a core too old to stream at
@@ -1171,6 +1235,7 @@ public final class AppState {
             Task { [weak self] in await self?.loadAgentOptions() },
             Task { [weak self] in await self?.loadThemes() },
             Task { [weak self] in await self?.loadGhosttyConfig() },
+            Task { [weak self] in await self?.updateLoop() },
         ]
         watch = Task { [weak self] in await self?.watchLoop() }
     }
@@ -1297,14 +1362,24 @@ public final class AppState {
         adopt(sessions: fresh)
     }
 
+    func setStatus(_ status: MoomuxClient.SessionStatus, for id: Session.ID) {
+        statuses[id] = status
+        statusFetchedAt[id] = Date()
+    }
+
     /// Loads (or reloads) worktree state and change counts for one session.
-    public func loadStatus(for id: Session.ID, force: Bool = false) async {
-        guard force || statuses[id] == nil else { return }
+    public func loadStatus(for id: Session.ID, force: Bool = false,
+                           maxAge: TimeInterval? = nil) async {
+        let stale = statusFetchedAt[id].map { Date().timeIntervalSince($0) >= (maxAge ?? Self.statusTTL) } ?? true
+        guard force || statuses[id] == nil || stale else { return }
+        // Snapshots land several a second; one fetch at a time per session.
+        guard statusInFlight.insert(id).inserted else { return }
+        defer { statusInFlight.remove(id) }
         do {
             let status = try await withoutBlockingTheUI { [client] in
                 try client.status(id: id)
             }
-            statuses[id] = status
+            setStatus(status, for: id)
         } catch {
             // Leave whatever was there; `connection` already carries the
             // failure, and a missing status row is not worth a second alarm.
@@ -1323,7 +1398,10 @@ public final class AppState {
         if fresh != sessions { sessions = fresh }
         let live = Set(fresh.map(\.id))
         let pruned = statuses.filter { live.contains($0.key) }
-        if pruned.count != statuses.count { statuses = pruned }
+        if pruned.count != statuses.count {
+            statuses = pruned
+            statusFetchedAt = statusFetchedAt.filter { live.contains($0.key) }
+        }
         for id in attachedSessions where !live.contains(id) { detach(id: id) }
         // tmux went away under an attached pane — `/kill`, `moomux park`, a
         // kill from the TUI. libghostty does **not** close the surface when
@@ -1407,6 +1485,11 @@ public final class AppState {
         if snapshot.views != views {
             let previous = views
             views = snapshot.views
+            let now = Date()
+            stateSince = views.reduce(into: [:]) { out, kv in
+                let old = stateSince[kv.key]
+                out[kv.key] = old?.state == kv.value.state ? old : (kv.value.state, now)
+            }
             notifier?.report(previous: previous, current: views)
         }
         if snapshot.rows != rows { rows = snapshot.rows }
@@ -1414,7 +1497,14 @@ public final class AppState {
         let drawable = snapshot.usage.flatMap { $0.isDrawable ? $0 : nil }
         if drawable != usage { usage = drawable }
         if snapshot.usageSetup != usageSetup { usageSetup = snapshot.usageSetup }
+        if snapshot.updateAvailable != coreUpdate { coreUpdate = snapshot.updateAvailable }
+        if snapshot.whatsNew != coreWhatsNew { coreWhatsNew = snapshot.whatsNew }
         adopt(sessions: snapshot.sessions)
+        // The detail pane's counts and the row badge for what is on screen:
+        // loadStatus is a no-op until the entry is `selectedStatusRefresh` old.
+        if let id = selectedSessionID, views[id]?.gitOK == true {
+            Task { await loadStatus(for: id, maxAge: Self.selectedStatusRefresh) }
+        }
     }
 
     /// One snapshot, then hang up: the phone's background refresh.
@@ -1646,19 +1736,18 @@ public final class AppState {
             app.selectAdjacentSession(by: 1)
             assert(app.selectedSessionID == "b:three", "the only visible row wraps to itself")
 
-            // The selected session's terminal is on screen, so its row stays
-            // whatever the collapse says — and ⌘↓ can still reach it.
+            // A live, selected session does not hold its project open: the
+            // collapse hides every row, and ⌘↓ steps to a row that is visible.
             app.views = ["a:two": view("a:two", state: "working")]
             app.attach(row("a", "two"))
             app.selectedSessionID = "a:two"
-            assert(app.shownSessions(of: "a", in: app.sessions).map(\.id) == ["a:two"])
-            // Still attached, but no longer what the right pane shows: a pane
-            // that outlived the switch away must not keep its row.
-            app.selectedSessionID = "b:three"
             assert(app.shownSessions(of: "a", in: app.sessions).isEmpty)
-            app.selectedSessionID = "a:two"
+            assert(app.sidebarRows(of: "a", in: app.sessions).isEmpty)
             app.selectAdjacentSession(by: 1)
-            assert(app.selectedSessionID == "b:three", "the pinned row is in the rotation")
+            assert(app.selectedSessionID == "b:three", "a hidden selection steps to a visible row")
+            app.selectedSessionID = "a:two"
+            app.selectAdjacentSession(by: -1)
+            assert(app.selectedSessionID == "b:three", "hidden selection, stepping up, wraps to the last visible row")
             app.detach(id: "a:two")
             app.views = [:]
 
@@ -1728,10 +1817,14 @@ public final class AppState {
             let dirtyRow = sample("a")
             app.views = [dirtyRow.id: view(dirtyRow.id, state: "working", gitOK: true, dirty: true)]
             assert(app.gitBadges(for: dirtyRow)?.dirty == true)
-            app.statuses[dirtyRow.id] = .init(known: true)
+            app.setStatus(.init(known: true), for: dirtyRow.id)
             assert(app.gitBadges(for: dirtyRow)?.dirty == false, "the fresher answer wins")
+            // …only while it is fresh: an old one must yield to the snapshot,
+            // or a badge set once outlives the change until the app restarts.
+            let later = Date().addingTimeInterval(AppState.statusTTL + 1)
+            assert(app.gitBadges(for: dirtyRow, now: later)?.dirty == true, "a stale status must not pin the badge")
             // …but a status nobody could determine is not an answer at all.
-            app.statuses[dirtyRow.id] = .init(known: false)
+            app.setStatus(.init(known: false), for: dirtyRow.id)
             assert(app.gitBadges(for: dirtyRow)?.dirty == true)
         }
 
@@ -1964,6 +2057,41 @@ public final class AppState {
 
     static let folderFirstKey = "folderFirst"
 
+    /// Draw the session list on the window's right edge. Mac only; the phone
+    /// has no side-by-side sidebar. `UserDefaults` for the same reason as
+    /// `diffTool`.
+    public var sidebarOnRight: Bool = UserDefaults.standard.bool(forKey: sidebarOnRightKey) {
+        didSet {
+            UserDefaults.standard.set(sidebarOnRight, forKey: Self.sidebarOnRightKey)
+            // Moving the list should show it, not carry over a hide from last time.
+            sidebarShown = true
+        }
+    }
+
+    static let sidebarOnRightKey = "sidebarOnRight"
+
+    /// Whether the right-hand list is open. The left one is AppKit's split
+    /// view and keeps its own state; this one is an inspector, which needs a
+    /// binding. Stored inverted so a missing key reads as shown.
+    public var sidebarShown: Bool = !UserDefaults.standard.bool(forKey: sidebarHiddenKey) {
+        didSet { UserDefaults.standard.set(!sidebarShown, forKey: Self.sidebarHiddenKey) }
+    }
+
+    static let sidebarHiddenKey = "sidebarHidden"
+
+    #if os(macOS)
+    /// ⌃⌘S and every toolbar button that shows or hides the list. On the left
+    /// it is AppKit's own split-view action; on the right the list is an
+    /// inspector, so it is our flag.
+    public func toggleSidebar() {
+        if sidebarOnRight {
+            sidebarShown.toggle()
+        } else {
+            NSApp.sendAction(#selector(NSSplitViewController.toggleSidebar(_:)), to: nil, from: nil)
+        }
+    }
+    #endif
+
     /// Point size for the whole sidebar — headers included, at the same size as
     /// the rows they head. `UserDefaults` for the same reason
     /// as `diffTool` — the core serves no such field and the TUI has no use
@@ -1976,9 +2104,9 @@ public final class AppState {
     static let listFontSizeKey = "listFontSize"
 
     #if os(macOS)
-    nonisolated static let systemFontSize = Double(NSFont.systemFontSize)
+    static let systemFontSize = Double(NSFont.systemFontSize)
     #else
-    nonisolated static let systemFontSize = Double(UIFont.systemFontSize)
+    static let systemFontSize = Double(UIFont.systemFontSize)
     #endif
 
     /// Font family for the sidebar. Empty means the system font, which is the

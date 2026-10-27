@@ -40,6 +40,13 @@ struct TerminalScreen: View {
     /// same `pendingDelete` and sits above this one when open, so without
     /// this both would raise the alert.
     @State private var deleting = false
+    @State private var killing = false
+    /// From the key bar. `focus` says no: the user is attached to a session and
+    /// a create takes tens of seconds, so a jump would detach them from it.
+    @State private var creating = false
+    /// The pane's own, for the same reason as `deleting`: detail binds its
+    /// own copy of these alerts.
+    @State private var edit: SessionEdit?
 
     /// A tapped file, fetched from the core and shown in Quick Look — which
     /// already does images, PDFs, text and code, with zoom and a share sheet.
@@ -63,7 +70,11 @@ struct TerminalScreen: View {
                          onURL: open(url:),
                          onFile: open(file:),
                          onPinch: { fontSize = $0 },
-                         onSwipe: { app.selectWindow(sessionID, delta: $0) })
+                         onSwipe: { app.selectWindow(sessionID, delta: $0) },
+                         onNewSession: { creating = true },
+                         onChanges: {
+                             if app.session(id: sessionID).map(app.canDiff) == true { push(.changes(sessionID)) }
+                         })
             // The core's Ghostty config arriving after this pane was built:
             // a new surface is the only way to apply it (`paneConfigGeneration`).
             .id(app.paneConfigGeneration)
@@ -80,6 +91,7 @@ struct TerminalScreen: View {
             // missing. Reported as "the cursor is two lines below where it
             // should be", which is precisely the inset in rows.
             .quickLookPreview($preview)
+            .sheet(isPresented: $creating) { NewSessionSheet(app: app, focus: { false }) }
             // Leaving the pane abandons its fetch, or a late refusal raises
             // "Couldn't do that" over whatever screen is next.
             .onDisappear {
@@ -111,39 +123,45 @@ struct TerminalScreen: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        // Attached is exactly when you want the branch, the PR
-                        // state and the worktree — the row's swipe reaches
-                        // detail too, but not once you are already in here.
-                        Button { push(.detail(sessionID)) } label: {
-                            Label("Details", systemImage: "info.circle")
-                        }
-                        // Here and not in the list's menu: it is this pane's
-                        // size, and the one place to judge it is looking at it.
-                        Picker(selection: $fontSize) {
-                            ForEach(TerminalFontSize.choices(including: fontSize), id: \.self) { size in
-                                Text("\(Int(size)) pt").tag(size)
-                            }
-                        } label: {
-                            Label("Text Size", systemImage: "textformat.size")
-                        }
-                        .pickerStyle(.menu)
-                        Section {
+                        // One row, not two: the menu otherwise outgrows the
+                        // screen and scrolls.
+                        ControlGroup {
                             // A `Button` and not a `PhotosPicker`: inside a
                             // `Menu` the picker lays its label out itself, so
                             // its icon sat at a different gap from Files'.
                             Button { pickingPhotos = true } label: {
-                                Label("Attach Photos", systemImage: "photo.on.rectangle")
+                                Label("Photos", systemImage: "photo.on.rectangle")
                             }
                             Button { importingFiles = true } label: {
-                                Label("Attach Files", systemImage: "folder")
+                                Label("Files", systemImage: "folder")
                             }
                         }
                         .disabled(attachments.pending > 0)
                         if let session = app.session(id: sessionID) {
-                            SessionActions(app: app, session: session) {
-                                deleting = true
-                                app.askDelete(session)
+                            SessionActions(app: app, session: session, edit: $edit, inMenu: true,
+                                           kill: { killing = true },
+                                           delete: {
+                                               deleting = true
+                                               app.askDelete(session)
+                                           })
+                        }
+                        ControlGroup {
+                            // Attached is exactly when you want the branch, the PR
+                            // state and the worktree — the row's swipe reaches
+                            // detail too, but not once you are already in here.
+                            Button { push(.detail(sessionID)) } label: {
+                                Label("Details", systemImage: "info.circle")
                             }
+                            // Here and not in the list's menu: it is this pane's
+                            // size, and the one place to judge it is looking at it.
+                            Picker(selection: $fontSize) {
+                                ForEach(TerminalFontSize.choices(including: fontSize), id: \.self) { size in
+                                    Text("\(Int(size)) pt").tag(size)
+                                }
+                            } label: {
+                                Label("Text Size", systemImage: "textformat.size")
+                            }
+                            .pickerStyle(.menu)
                         }
                     } label: {
                         // A spinner while a batch uploads, but still a menu:
@@ -187,6 +205,18 @@ struct TerminalScreen: View {
                 }
             } message: {
                 Text(app.session(id: sessionID).map(app.deleteWarning(for:)) ?? "")
+            }
+            .sessionEditing(app: app, session: app.session(id: sessionID), edit: $edit)
+            // Same question as detail's. The pane leaves first, or its
+            // reconnect would stand the session straight back up.
+            .confirmationDialog("Stop \(app.session(id: sessionID)?.name ?? "session")'s agent?",
+                                isPresented: $killing, titleVisibility: .visible) {
+                Button("Kill tmux", role: .destructive) {
+                    dismiss()
+                    if let session = app.session(id: sessionID) { app.killTmux(session) }
+                }
+            } message: {
+                Text("Its tmux session ends. The worktree and branch stay, and Attach starts it again.")
             }
             // No `onDisappear` cancel, unlike the sheet: pushing the info
             // screen disappears this one too, and would drop a batch mid-way.
@@ -261,12 +291,16 @@ struct AttachedTerminal: UIViewRepresentable {
     let onFile: (String) -> Void
     let onPinch: (Double) -> Void
     let onSwipe: (Int) -> Void
+    let onNewSession: () -> Void
+    let onChanges: () -> Void
 
     func makeUIView(context: Context) -> UITerminalView {
         let view = LinkTapView(frame: .init(x: 0, y: 0, width: 390, height: 600))
         view.liveFontSize = fontSize
         view.onPinch = onPinch
         view.onSwipe = onSwipe
+        view.keyBar.onNewSession = onNewSession
+        view.keyBar.onChanges = onChanges
         pane.view = view
         view.delegate = context.coordinator
         view.controller = controller
@@ -341,6 +375,7 @@ struct AttachedTerminal: UIViewRepresentable {
             for recognizer in gestureRecognizers ?? [] where recognizer is UIPinchGestureRecognizer {
                 recognizer.isEnabled = false
             }
+            keyBar.terminal = self
             addGestureRecognizer(UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:))))
             // The package's touch-scroll pan, which already owns every finger
             // drag; a second recognizer would have to fight it. Matched as the
@@ -392,6 +427,34 @@ struct AttachedTerminal: UIViewRepresentable {
 
         required init?(coder: NSCoder) { fatalError("not from a nib") }
 
+        /// Replaces the package's accessory bar — see `PaneKeyBar`.
+        let keyBar = PaneKeyBar()
+
+        override var inputAccessoryView: UIView? { keyBar }
+
+        private let noKeyboard = UIView(frame: .zero)
+        override var inputView: UIView? { keyBar.keyboardHidden ? noKeyboard : super.inputView }
+
+        /// A tap toggles the keyboard but keeps focus, so the bar stays up
+        /// (see `PaneKeyBar.keyboardHidden`). The package's own toggle resigns.
+        private func toggleKeyboard() {
+            guard isFirstResponder else {
+                keyBar.keyboardHidden = false
+                becomeFirstResponder()
+                return
+            }
+            keyBar.keyboardHidden.toggle()
+        }
+
+        /// Every other way the keyboard closes — the system dismissing it,
+        /// another field taking focus — passes through here; Hide goes through
+        /// `PaneKeyBar.keyboardHidden`.
+        override func resignFirstResponder() -> Bool {
+            let resigned = super.resignFirstResponder()
+            if resigned { keyBar.closeArrowPad() }
+            return resigned
+        }
+
         /// Steps the live surface to `size`. Idempotent, so the save that a
         /// pinch triggers coming back through `onChange` does nothing.
         func setFontSize(_ size: Double) {
@@ -419,6 +482,42 @@ struct AttachedTerminal: UIViewRepresentable {
             }
         }
 
+        /// The keyboard's hold-space trackpad. UIKit drives it through these
+        /// optional `UITextInput` calls, which the package leaves out, and its
+        /// document is always empty, so there is no caret for UIKit to move.
+        /// The drag becomes arrow keys instead: one per cell travelled, from
+        /// the point where the hold began. tmux reads them like any other key.
+        private var floatingStart: CGPoint?
+        private var floatingSent = (x: 0, y: 0)
+
+        /// UIKit clamps the floating cursor vertically to the caret's line,
+        /// the document's only one here, so a drag could not leave the row.
+        /// For the length of the hold the caret spans the view instead.
+        override func caretRect(for position: UITextPosition) -> CGRect {
+            let rect = super.caretRect(for: position)
+            guard floatingStart != nil else { return rect }
+            return CGRect(x: rect.minX, y: bounds.minY, width: rect.width, height: bounds.height)
+        }
+
+        @objc func beginFloatingCursor(at point: CGPoint) {
+            floatingStart = point
+            floatingSent = (0, 0)
+        }
+
+        @objc func updateFloatingCursor(at point: CGPoint) {
+            guard let start = floatingStart else { return }
+            // One cell: the package's caret is ghostty's IME point.
+            let cell = super.caretRect(for: beginningOfDocument).size
+            guard cell.width > 0, cell.height > 0 else { return }
+            let x = Int((point.x - start.x) / cell.width)
+            let y = Int((point.y - start.y) / cell.height)
+            for _ in 0..<abs(x - floatingSent.x) { sendKey(x > floatingSent.x ? .arrowRight : .arrowLeft) }
+            for _ in 0..<abs(y - floatingSent.y) { sendKey(y > floatingSent.y ? .arrowDown : .arrowUp) }
+            floatingSent = (x, y)
+        }
+
+        @objc func endFloatingCursor() { floatingStart = nil }
+
         /// Kept past `super`: with inline selection on, a single tap is a
         /// recognizer that fires only once a double tap has failed, well
         /// after `touchesEnded` returns. Consumed by the toggle it leads to.
@@ -430,14 +529,14 @@ struct AttachedTerminal: UIViewRepresentable {
         override func toggleSoftwareKeyboard() {
             defer { tap = nil }
             guard let tap, let coordinator = delegate as? Coordinator else {
-                return super.toggleSoftwareKeyboard()
+                return toggleKeyboard()
             }
             sendMousePos(x: -1, y: -1)
             coordinator.hoverLink = nil
             sendMousePos(x: tap.x, y: tap.y, modifiers: isMouseCaptured ? [.super_, .shift] : .super_)
             let link = coordinator.hoverLink
             sendMousePos(x: -1, y: -1)
-            guard let link, coordinator.follow(link) else { return super.toggleSoftwareKeyboard() }
+            guard let link, coordinator.follow(link) else { return toggleKeyboard() }
         }
     }
 

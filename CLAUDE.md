@@ -453,6 +453,14 @@ core new enough to serve them** — there is no fallback to the old local paths.
 
 ## Things that will bite you
 
+- **The Mac sidebar draws its own selection, and a collapse hides every row.** The system's
+  selection pill is grey, the same tone as a project's header band, so `NoSelectionHighlight` sets
+  the backing `NSTableView`'s `selectionHighlightStyle` to `.none` (selection itself — clicks, arrow
+  keys, the binding — is untouched) and the selected row draws an accent bar on each outer edge
+  instead. A collapsed project hides *all* its rows, the selected one included; its terminal stays
+  open, and the header wears the same edges while it is holding the selection. If SwiftUI ever
+  stops backing a `List` with an `NSTableView` the grey pill simply comes back.
+
 - **Tab does not reach a `Picker` or a `Toggle` unless the user has Full Keyboard Access on.**
   macOS keeps pop-up buttons and switches out of the Tab chain by default (System Settings →
   Keyboard → Keyboard navigation; ⌃F7 toggles it), so in the New Session sheet Tab runs Name →
@@ -505,9 +513,11 @@ core new enough to serve them** — there is no fallback to the old local paths.
   `[indent][disclosure][icon][name]` with the disclosure and icon columns fixed-width, left *empty*
   rather than skipped by a row that has neither. So a name's x follows from its nesting level and
   nothing else — not whether the row has a chevron, not whether a project set an emoji, not the
-  glyph metrics of whatever font the sidebar is set to. A session sits one level in from whatever
-  header it is grouped under (project › session is one, folder › project › session two), and pays
-  for the chevron column it does not use in its leading padding (`SidebarGrid.rowIndent`). One knob,
+  glyph metrics of whatever font the sidebar is set to. A session is **not** indented from its
+  header: its dot sits straight under the header's icon (`SidebarGrid.rowIndent` of the header's
+  level, which is the session's `level - 1` — it pays for the chevron column it does not use). What
+  says which header a session belongs to is the header's band instead: small bold caps on a tinted
+  row, rounded on top while expanded and a full pill when collapsed, on both apps. One knob,
   `SidebarGrid.step`; the pair of hand-tuned constants this replaced could not stay aligned when a
   row's prefix changed width, which is exactly what an emoji-less project did. Two things
   differ from the project-first list. A project *subheader* inside a folder folds **locally**
@@ -871,6 +881,13 @@ Decisions, not oversights. Don't "fix" these without being asked.
   because a `Commands` body is not re-evaluated when an `@Observable` it reads changes, so a
   computed title is read once at launch and lies from then on. The group still has to be declared —
   with no `.sidebar` group the View menu holds only Enter Full Screen.
+  **With Settings → Appearance → Side set to Right, the list is not a sidebar at all**: it is an
+  `.inspector` beside a `NavigationStack`, because `NavigationSplitView` has no trailing sidebar.
+  Mirroring the split view right-to-left was tried and measured: NSToolbar still splits at the
+  sidebar's width from the left, so every detail toolbar item overflowed into `>>`. There
+  `AppState.toggleSidebar()` flips `sidebarShown` (persisted as `sidebarHidden`) instead of sending
+  `toggleSidebar:`, and the menu item and our own toolbar button both call it — so if ⌃⌘S
+  misbehaves on one side only, that function is where the two paths split.
 - **Search matches names and nothing else**, case-insensitively, over the *whole* store — archived
   sessions included, whatever the Archived toggle says. Both halves are `internal/tui/search.go`'s
   `matchSessions`: the session you cannot remember is disproportionately likely to be one you
@@ -897,9 +914,8 @@ Decisions, not oversights. Don't "fix" these without being asked.
   daemonized core (see the "Open in terminal" bullet) — `EnsureTmux` is the half this app wants. (`SetSessionStatusTitle`
   and `StartFirstPrompt` are gone from the wire entirely — the core keeps tmux window titles in
   step itself, and the first prompt is part of the `CreateSession` transaction.) The other TUI-only
-  settings (theme, appearance, auto-tmux) are here because they are one-line flags on a shared
-  config file and a front end that could edit projects but not those would stop somewhere odd; a
-  flag whose *only* meaning is the shape of the TUI's own panel is over that line.
+  settings (auto-tmux, TUI appearance) are deliberately not here: they change nothing in this app,
+  so a control for them is noise. The wire calls and `Config` fields stay for the core's sake.
   **No drag-to-reorder**, though, for sessions or projects: `MoveSession`/`MoveProject` take a ±1
   delta, the lists are plain `List`s, and `onMove` wants index sets over a bound array, so ⌃⌘↑/↓ and
   two chevron buttons are the whole feature for a day less work.

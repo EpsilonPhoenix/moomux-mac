@@ -157,6 +157,13 @@ actually got, under the same version, and a failed upload does not block the cas
 **D17. Swift 5 language mode on both SwiftPM targets.** A new target defaults to Swift 6, and
 strict concurrency would break the blocking-fd socket client first.
 
+**D53. Only the Mac checks for a newer release of itself.** `AppState.updateLoop` asks GitHub's
+latest-release endpoint at launch and every six hours, and the bottom-right "Update available"
+pill hovers with the answer. The phone updates through TestFlight, so a GitHub tag says nothing
+about what it can install, and the loop is `#if os(macOS)`. The core's own update
+(`Snapshot.updateAvailable`) arrives on the snapshot and is drawn by the Mac's pill; the phone
+decodes it and draws nothing.
+
 ---
 
 ## C. The platform seam
@@ -174,7 +181,7 @@ UIKit is an `#if` in the file that needs it:
 | theme colours (`SessionTheme`) | `NSColor(name:)` dynamic provider | `UIColor { traits in … }` |
 | foreground banner rule (`Notifier.report`) | none for the selected session in the active app | none for the pane on screen (`paneOnScreen`) |
 | `willPresent` (`Notifier`) | not implemented: the system default | shows the banner in the foreground |
-| notification tap (`Notifier`) | `NSApp.activate()`, order the window front | iOS brings the app forward itself |
+| notification tap (`Notifier`) | `NSApp.activate()`, order the window front | iOS brings the app forward itself; a tap on a dead or disconnected app is caught by `EarlyTap` and the list retries until the session and its live state are in |
 | What's New sheet | fixed frame | detents |
 | `ToolPath` | the whole file | compiled out (`Process` is unavailable) |
 
@@ -477,6 +484,25 @@ waits out the double-tap, which is also when `LinkTapView`'s link probe runs.
 
 ---
 
+**D54. The phone has a key bar over its keyboard; the Mac has no keyboard to add to.** The pane's
+`inputAccessoryView` is `PaneKeyBar`, not libghostty-spm's own bar: that one's items are a closed
+enum and its look is four colours, so it cannot hold Moomux's buttons. The package supports a host
+drawing its own (`toggleStickyModifier`, `sendKey`, `paste(text:)`), so Ctrl and Alt still ride its
+sticky state. One glass pill: Ctrl, Esc, Tab; Arrow Pad, Paste, Snippets, New Session, View Changes;
+Alt; and Hide Keyboard pinned at the right, which sends Return on a double tap instead (so a single
+tap hides 0.3s late, waiting out the second). Hiding swaps the keyboard for an empty `inputView`
+instead of resigning, so the bar stays docked at the bottom with the pane above it, and the same key
+(now Show Keyboard) or a tap on the pane brings it back. The arrows live on a floating pad (`PaneArrowPad`) that
+the bar's pad button opens over the pane — a subview of the terminal, because the accessory host
+clips and hit-tests to the bar — and its keys repeat while held. A handle on its top edge drags it out of the way of an input field;
+the position is kept in `UserDefaults`. New Session opens the same sheet without jumping to
+the new session (the user is attached to another one), and Changes is the toolbar's own route.
+Snippets (`PaneKeyBar.snippets`) are pasted and then sent Return as a keystroke, except one marked
+not to submit (`/spawn `, which takes an argument, and `/kill`, which parks the session, so it
+waits for the user's own Return). The list carries moomux's own slash commands: `/spawn`, `/tag`,
+`/reseed`, `/kill`. Paste and Snippets clear an armed Ctrl/Alt first.
+Ceiling: the punctuation keys the package's bar had (`| ~ /`) are gone.
+
 ## F. Links and files
 
 | | Mac | iPhone |
@@ -555,7 +581,7 @@ navigated to the terminal.
 |---|---|---|
 | Lenses | project-first / folder-first, ⇧⌘F | the same two, ⋯ → Group by Folder |
 | Project header | plain `.selectionDisabled()` row | `Section` header (project-first) or row (folder-first) |
-| Row | state icon + name; badges on a second line | state icon + name + badges on one line |
+| Row | state icon + name + badges on one line | the same |
 | Quip | toolbar title for the selection | toolbar title of the attached pane |
 | Font | Settings → Appearance (family, size) | system, `SidebarGrid.phoneFont` |
 | Tap | select, and auto-attach if alive; double-click attaches even parked | attach if alive, else open detail |
@@ -568,10 +594,10 @@ parked row on the phone opens detail, because `Attach` revives, and a mis-tap wh
 would start an agent. A tapped phone notification follows the same gate. Reviving is always a
 deliberate button: Attach in detail, or double-click on the Mac.
 
-**D42. One row line on the phone, not two.** The Mac's second badge line cost about half a row of
-height per session on a phone and pushed three sessions off the screen. So the badges sit
-right-aligned on the name's line and the name truncates at the tail. The quip moved to the pane's
-title, where it describes the session you are in.
+**D42. One row line, on both.** A second line for the badges cost about half a row of height per
+session on a phone and pushed three sessions off the screen. So the badges sit right-aligned on
+the name's line and the name truncates at the tail, and the Mac does the same so the two lists
+read alike. The quip moved to the pane's title, where it describes the session you are in.
 
 **D43. Plain rows for Mac headers, `Section` headers on the phone.** A Mac sidebar `Section` keeps
 its own hidden disclosure state, which falls out of phase with the core's collapsed flag at
@@ -584,19 +610,24 @@ different widths.
 | | Mac | iPhone |
 |---|---|---|
 | Attach | select / double-click / ⌘↩ | tap |
-| Archive / Unarchive | ⌘E, context menu | trailing swipe, detail ⋯, pane ⋯ |
-| Pin to Top / Unpin | Session menu, context menu | trailing swipe, detail ⋯, pane ⋯ |
+| Archive / Unarchive | ⌘E, context menu | trailing swipe, detail, pane ⋯ |
+| Pin to Top / Unpin | Session menu, context menu | trailing swipe, detail, pane ⋯ |
 | Details | inspector ⌘I | trailing swipe; ⋯ in the pane |
 | Review | ⌘G, context menu, detail | leading swipe, detail |
 | View changes (native diff) | none (D46) | leading swipe, pane toolbar, detail |
-| File into a folder | context menu → Folder, drag | drag onto a folder header |
-| Rename | Edit… ⇧⌘R (with agent) | detail → Rename… (name only) |
-| Tags | ⌘T, context menu | detail → Tags… |
-| Delete | ⌘⌫, context menu | detail ⋯, pane ⋯ |
-| Kill tmux | ⇧⌘K, context menu (not confirmed) | detail (confirmed) |
-| New Folder | project header, row → Folder | detail → Folder → New Folder… |
+| File into a folder | context menu → Folder, drag | drag onto a folder header; detail, pane ⋯ → Folder |
+| Rename | Edit… ⇧⌘R (with agent) | detail, pane ⋯ → Rename… (name only) |
+| Tags | ⌘T, context menu | detail, pane ⋯ → Tags… |
+| Delete | ⌘⌫, context menu | detail, pane ⋯ |
+| Kill tmux | ⇧⌘K, context menu (not confirmed) | detail, pane ⋯ (confirmed) |
+| New Folder | project header, row → Folder | detail, pane ⋯ → Folder → New Folder… |
 | Diff tool, Copy Path, Move Up/Down | yes | none, deliberately |
+| Ticket, Pull request, Open in MergeRight | inspector, context menu | detail, pane ⋯ |
 | Folder header menu | Rename, Archive All, Unarchive All, Delete | the same (long press) |
+
+The Mac row's context menu and the phone's session actions (detail, pane ⋯) run in one order:
+links; Folder, Archive, Edit/Rename, Tags; then Kill tmux and Delete. The Mac's own tools (Review,
+diff tool, Copy Path, Move Up/Down) sit between the last two groups.
 
 Kill tmux is confirmed on the phone and not on the Mac, because a phone row is a bigger target for
 a mis-tap and this stops an agent mid-thought. On the phone it takes the session's pane out of the
@@ -664,8 +695,8 @@ rg -n 'NSUbiquitousKeyValueStore' Sources                             # nothing:
 | Setting | Where it lives | Mac | iPhone |
 |---|---|---|---|
 | projects, agent, skip-permissions, base branch, branch prefix, emoji | core | ✅ Settings → Projects | applies, not editable |
-| sort by last opened, send first prompt by default, relaunch TUI in tmux, terminal pane in new sessions | core | ✅ Settings → General | applies, not editable |
-| theme, TUI appearance | core | ✅ Settings → Appearance | theme colours apply to the rows |
+| sort by last opened, send first prompt by default, terminal pane in new sessions | core | ✅ Settings → General | applies, not editable |
+| theme | core | ✅ Settings → Appearance | theme colours apply to the rows |
 | project collapsed, folder collapsed | core | ✅ | ✅ (both toggle the same flag) |
 | group by folder (`folderFirst`) | device | ✅ toolbar, ⇧⌘F | ✅ ⋯ menu |
 | folder-subheader folding (`folderProjectCollapsed`) | device | ✅ | ✅ |
@@ -673,6 +704,7 @@ rg -n 'NSUbiquitousKeyValueStore' Sources                             # nothing:
 | select a new session when created (`autoFocusNewSession`) | device | ✅ Settings → General | n/a: always on (D45) |
 | diff tool (`diffTool`) | device | ✅ | n/a (no `Process`) |
 | sidebar font (`listFontFamily`, `listFontSize`) | device | ✅ Settings → Appearance | n/a |
+| sidebar on the right (`sidebarOnRight`) | device | ✅ Settings → Appearance | n/a (no side-by-side list) |
 | terminal size (`terminalFontSize`) | device | n/a (D30) | ✅ pane ⋯ menu, and pinch |
 | core address (`coreHost`, `corePort`) | device | n/a (`--socket`) | ✅ connect screen |
 
@@ -797,3 +829,9 @@ Not questions, just things out of step. Fix them and remove them from here.
    the debugger's `_simulateLaunchForTaskWithIdentifier:` is the way to force one.
 2. **The phone has no "Claude usage" setup row.** The Mac's Settings explains a missing usage
    (`UsageSetup.advice`, in the Kit); the phone's ⋯ menu should show the same lines.
+3. **The phone does not draw empty folders.** The Mac's folder-first sidebar adds a header for a
+   folder nothing is filed in (`Layout.withEmptyFolders`), so it can be renamed or deleted. The
+   phone's list does not, so such a folder can only be removed from the Mac.
+4. **The phone does not show the core's release notes.** The Mac opens a second What's New sheet
+   for the core's own notes (`Snapshot.whatsNew`, its own `WhatsNew.coreSeenKey`) once per core
+   upgrade. The snapshot reaches the phone's store too, but nothing there presents it.

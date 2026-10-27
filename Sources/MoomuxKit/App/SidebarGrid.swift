@@ -38,8 +38,9 @@ public enum SidebarGrid {
     }
 
     /// A session row's, which is a header's plus the chevron column it has no
-    /// chevron for — that is what puts its dot one clean step right of the
-    /// icon of the header it belongs to.
+    /// chevron for. Both apps ask for the *header's* level (one less than the
+    /// session's), which puts the dot straight under the header's icon; asking
+    /// for the session's own level puts it one clean step further right.
     public static func rowIndent(_ level: Int, _ font: Double) -> CGFloat {
         indent(level, font) + disclosure(font) + gap
     }
