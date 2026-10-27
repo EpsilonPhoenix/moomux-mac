@@ -122,10 +122,16 @@ final class PaneKeyBar: UIView {
         ])
     }
 
+    /// The pad belongs to the keyboard: it goes when the keyboard does, however
+    /// that happened, rather than floating over a pane nobody is typing into.
+    func closeArrowPad() {
+        arrowPad?.removeFromSuperview()
+        arrowPad = nil
+    }
+
     private func toggleArrowPad(in view: UITerminalView) {
-        if let arrowPad {
-            arrowPad.removeFromSuperview()
-            self.arrowPad = nil
+        if arrowPad != nil {
+            closeArrowPad()
         } else {
             let pad = PaneArrowPad(terminal: view)
             pad.show(in: view)
