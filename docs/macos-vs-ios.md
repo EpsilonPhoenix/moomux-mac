@@ -701,6 +701,7 @@ rg -n 'NSUbiquitousKeyValueStore' Sources                             # nothing:
 | select a new session when created (`autoFocusNewSession`) | device | ✅ Settings → General | n/a: always on (D45) |
 | diff tool (`diffTool`) | device | ✅ | n/a (no `Process`) |
 | sidebar font (`listFontFamily`, `listFontSize`) | device | ✅ Settings → Appearance | n/a |
+| sidebar on the right (`sidebarOnRight`) | device | ✅ Settings → Appearance | n/a (no side-by-side list) |
 | terminal size (`terminalFontSize`) | device | n/a (D30) | ✅ pane ⋯ menu, and pinch |
 | core address (`coreHost`, `corePort`) | device | n/a (`--socket`) | ✅ connect screen |
 

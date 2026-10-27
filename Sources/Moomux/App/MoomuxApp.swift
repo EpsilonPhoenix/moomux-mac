@@ -141,14 +141,15 @@ struct SessionCommands: Commands {
         // value back after collapsing the column, so the next press computed
         // "hide" again and the sidebar never came back. The toolbar button was
         // unaffected all along because it is this same responder-chain action.
+        // With the list on the right it is an inspector, not a split-view
+        // sidebar, and `toggleSidebar()` flips a flag instead; the right-hand
+        // toolbar button calls the same function, so the two still agree.
         //
         // "Toggle", not "Hide"/"Show": a `Commands` body is not re-evaluated
         // when an `@Observable` it reads changes, so a computed title is read
         // once at launch and lies from then on.
         CommandGroup(replacing: .sidebar) {
-            Button("Toggle Sidebar") {
-                NSApp.sendAction(#selector(NSSplitViewController.toggleSidebar(_:)), to: nil, from: nil)
-            }
+            Button("Toggle Sidebar") { app.toggleSidebar() }
             .keyboardShortcut("s", modifiers: [.control, .command])
             // How the sidebar is grouped is a View-menu question, and a folder
             // glyph in the toolbar does not say what it does. The shortcut
