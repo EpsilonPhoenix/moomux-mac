@@ -882,6 +882,17 @@ public final class AppState {
     /// Empty from a core too old to send it.
     public private(set) var projectEmoji: [String: String] = [:]
 
+    /// `emoji(for:)` as the session list draws it — nil while the user has
+    /// turned the list's emoji off.
+    public func listEmoji(for project: String) -> String? {
+        showProjectEmoji ? emoji(for: project) : nil
+    }
+
+    /// The same for the menu bar's waiting sessions, behind its own switch.
+    public func menuBarEmoji(for project: String) -> String? {
+        showMenuBarEmoji ? emoji(for: project) : nil
+    }
+
     /// A search must never be answered by a section the user cannot see, so
     /// collapsing is ignored while there is a query — same reason search
     /// matches archived sessions whatever the Archived toggle says.
@@ -2047,6 +2058,23 @@ public final class AppState {
     }
 
     static let mergeRightLinksKey = "mergeRightLinks"
+
+    /// Draw each project's emoji in the session list, and in the menu bar's
+    /// list of waiting sessions — two switches because the menu bar is narrow
+    /// and the sidebar is not. `UserDefaults` for the same reason as `diffTool`.
+    public var showProjectEmoji: Bool = UserDefaults.standard.object(forKey: showProjectEmojiKey) as? Bool
+        ?? true {
+        didSet { UserDefaults.standard.set(showProjectEmoji, forKey: Self.showProjectEmojiKey) }
+    }
+
+    static let showProjectEmojiKey = "showProjectEmoji"
+
+    public var showMenuBarEmoji: Bool = UserDefaults.standard.object(forKey: showMenuBarEmojiKey) as? Bool
+        ?? true {
+        didSet { UserDefaults.standard.set(showMenuBarEmoji, forKey: Self.showMenuBarEmojiKey) }
+    }
+
+    static let showMenuBarEmojiKey = "showMenuBarEmoji"
 
     /// Group the sidebar by folder rather than by project. `UserDefaults` for
     /// the same reason as `diffTool`: which way this window is looking at the
