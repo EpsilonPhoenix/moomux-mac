@@ -446,6 +446,15 @@ struct AttachedTerminal: UIViewRepresentable {
             keyBar.keyboardHidden.toggle()
         }
 
+        /// Every other way the keyboard closes — the system dismissing it,
+        /// another field taking focus — passes through here; Hide goes through
+        /// `PaneKeyBar.keyboardHidden`.
+        override func resignFirstResponder() -> Bool {
+            let resigned = super.resignFirstResponder()
+            if resigned { keyBar.closeArrowPad() }
+            return resigned
+        }
+
         /// Steps the live surface to `size`. Idempotent, so the save that a
         /// pinch triggers coming back through `onChange` does nothing.
         func setFontSize(_ size: Double) {
