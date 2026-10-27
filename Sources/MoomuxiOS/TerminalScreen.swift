@@ -432,6 +432,20 @@ struct AttachedTerminal: UIViewRepresentable {
 
         override var inputAccessoryView: UIView? { keyBar }
 
+        private let noKeyboard = UIView(frame: .zero)
+        override var inputView: UIView? { keyBar.keyboardHidden ? noKeyboard : super.inputView }
+
+        /// A tap toggles the keyboard but keeps focus, so the bar stays up
+        /// (see `PaneKeyBar.keyboardHidden`). The package's own toggle resigns.
+        private func toggleKeyboard() {
+            guard isFirstResponder else {
+                keyBar.keyboardHidden = false
+                becomeFirstResponder()
+                return
+            }
+            keyBar.keyboardHidden.toggle()
+        }
+
         /// Steps the live surface to `size`. Idempotent, so the save that a
         /// pinch triggers coming back through `onChange` does nothing.
         func setFontSize(_ size: Double) {
@@ -506,14 +520,14 @@ struct AttachedTerminal: UIViewRepresentable {
         override func toggleSoftwareKeyboard() {
             defer { tap = nil }
             guard let tap, let coordinator = delegate as? Coordinator else {
-                return super.toggleSoftwareKeyboard()
+                return toggleKeyboard()
             }
             sendMousePos(x: -1, y: -1)
             coordinator.hoverLink = nil
             sendMousePos(x: tap.x, y: tap.y, modifiers: isMouseCaptured ? [.super_, .shift] : .super_)
             let link = coordinator.hoverLink
             sendMousePos(x: -1, y: -1)
-            guard let link, coordinator.follow(link) else { return super.toggleSoftwareKeyboard() }
+            guard let link, coordinator.follow(link) else { return toggleKeyboard() }
         }
     }
 
