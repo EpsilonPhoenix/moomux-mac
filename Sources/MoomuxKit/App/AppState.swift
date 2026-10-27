@@ -2221,6 +2221,13 @@ public final class AppState {
         }
     }
 
+    public func setPinned(_ session: Session, _ pinned: Bool) {
+        mutate(pinned ? "Pin" : "Unpin") {
+            try $0.setPinned(id: session.id, pinned)
+            return nil
+        }
+    }
+
     /// Sends the project's whole resulting order, worked out from the layout
     /// this window is displaying — see `MoomuxClient.reorderSessions`. A move
     /// with nowhere to go is silence, the same no-op `MoveSession` was.

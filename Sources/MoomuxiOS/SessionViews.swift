@@ -173,6 +173,10 @@ struct SessionListView: View {
                     app.setArchived(session, !session.archived)
                 }
                 .tint(.indigo)
+                Button(session.pinned ? "Unpin" : "Pin") {
+                    app.setPinned(session, !session.pinned)
+                }
+                .tint(.orange)
                 Button("Details") { path.append(.detail(session.id)) }
                     .tint(.gray)
             }
@@ -774,7 +778,7 @@ struct SessionDetailView: View {
     }
 }
 
-/// The links, Folder, Archive, Rename, Tags, Kill tmux and Delete: rows on the
+/// The links, Folder, Pin, Archive, Rename, Tags, Kill tmux and Delete: rows on the
 /// detail screen, items in the attached pane's ⋯. Rename, Tags, New Folder,
 /// Kill and Delete only raise the host screen's alerts (`sessionEditing` for
 /// the first three).
@@ -819,6 +823,11 @@ struct SessionActions: View {
                         Label("Folder", systemImage: "folder")
                     }
                 }
+            }
+            Button {
+                app.setPinned(session, !session.pinned)
+            } label: {
+                Label(session.pinned ? "Unpin" : "Pin to Top", systemImage: session.pinned ? "pin.slash" : "pin")
             }
             Button {
                 app.setArchived(session, !session.archived)

@@ -76,6 +76,9 @@ public struct Session: Decodable, Identifiable, Hashable, Sendable {
     public var pr: String?
     public var prompt: String?
     public var archived: Bool
+    /// Listed first within its project or folder. Display only: the core
+    /// does the floating and leaves the session's manual order alone.
+    public var pinned: Bool
     public var lastOpened: Date
     /// The folder this session is filed under within its project, "" for a
     /// loose one. Membership lives here; the folder's own display state lives
@@ -92,7 +95,7 @@ public struct Session: Decodable, Identifiable, Hashable, Sendable {
     public var hasBeenOpened: Bool { lastOpened > Wire.goZeroTimeCutoff }
 
     enum CodingKeys: String, CodingKey {
-        case id, project, name, branch, agent, dangerous, ticket, pr, prompt, archived, folder
+        case id, project, name, branch, agent, dangerous, ticket, pr, prompt, archived, pinned, folder
         case worktreePath = "worktree_path"
         case tmuxSession = "tmux_session"
         case createdAt = "created_at"
@@ -114,6 +117,7 @@ public struct Session: Decodable, Identifiable, Hashable, Sendable {
         pr = try c.decodeIfPresent(String.self, forKey: .pr)
         prompt = try c.decodeIfPresent(String.self, forKey: .prompt)
         archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+        pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
         lastOpened = try c.decodeIfPresent(Date.self, forKey: .lastOpened) ?? .distantPast
         folder = try c.decodeIfPresent(String.self, forKey: .folder) ?? ""
     }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// One session's badge row, in both apps: ticket, PR (carrying its own merge/CI
+/// One session's badge row, in both apps: a pin, ticket, PR (carrying its own merge/CI
 /// state), then `internal/tui/list.go`'s two git icons — ± for a dirty worktree,
 /// ↑ for commits not on the remote — and an archive box only in a search, the
 /// one list that mixes archived rows in with live ones.
@@ -28,6 +28,12 @@ public struct SessionBadges<Tag: View>: View {
 
     public var body: some View {
         HStack(spacing: spacing) {
+            if session.pinned {
+                Image(systemName: "pin.fill")
+                    .foregroundStyle(.secondary)
+                    .help("Pinned")
+                    .accessibilityLabel("Pinned")
+            }
             if let ticket = session.ticket, !ticket.isEmpty {
                 tag("ticket", ticket, ticket)
                     .foregroundStyle(.secondary)

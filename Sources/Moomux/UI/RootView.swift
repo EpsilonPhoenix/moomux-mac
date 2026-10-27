@@ -1176,6 +1176,9 @@ private struct SessionRow: View {
                     app.sheet = .newFolder(assign: session)
                 }
             }
+            Button(session.pinned ? "Unpin" : "Pin to Top") {
+                app.setPinned(session, !session.pinned)
+            }
             Button(session.archived ? "Unarchive" : "Archive") {
                 app.setArchived(session, !session.archived)
             }
