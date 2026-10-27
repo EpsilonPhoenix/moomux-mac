@@ -868,7 +868,7 @@ private struct FolderProjectHeader: View {
                 .foregroundStyle(.secondary)
                 .frame(width: SidebarGrid.disclosure(app.listFontSize))
                 .rotationEffect(.degrees(collapsed ? 0 : 90))
-            Text(app.emoji(for: name) ?? "")
+            Text(app.listEmoji(for: name) ?? "")
                 .frame(width: SidebarGrid.icon(app.listFontSize))
             Text(name)
         }
@@ -980,7 +980,7 @@ private struct ProjectHeader: View {
                 .foregroundStyle(.secondary)
                 .frame(width: SidebarGrid.disclosure(app.listFontSize))
                 .rotationEffect(.degrees(expanded ? 90 : 0))
-            Text(app.emoji(for: name) ?? "")
+            Text(app.listEmoji(for: name) ?? "")
                 .frame(width: SidebarGrid.icon(app.listFontSize))
             Text(name)
         }
@@ -1649,8 +1649,9 @@ struct MenuBarContent: View {
                     let state = app.state(for: session)
                     HStack {
                         Image(systemName: state.symbol).foregroundStyle(Theme.color(state, app.palette))
-                        // The project name only when there is no emoji to stand in for it (a core too old to send one).
-                        Text(app.emoji(for: session.project).map { "\($0) \(session.name)" } ?? "\(session.project) · \(session.name)")
+                        // The project name only when there is no emoji to stand in for it (a core too old
+                        // to send one, or the menu bar's emoji switched off).
+                        Text(app.menuBarEmoji(for: session.project).map { "\($0) \(session.name)" } ?? "\(session.project) · \(session.name)")
                         Spacer()
                         Text(app.label(for: session)).foregroundStyle(.secondary)
                     }

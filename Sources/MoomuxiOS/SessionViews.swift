@@ -242,7 +242,7 @@ struct SessionListView: View {
                             .font(.caption2)
                             .frame(width: SidebarGrid.disclosure(SidebarGrid.phoneFont))
                             .rotationEffect(.degrees(collapsed ? 0 : 90))
-                        Text([app.emoji(for: name), name]
+                        Text([app.listEmoji(for: name), name]
                             .compactMap { $0 }.joined(separator: " "))
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
@@ -312,6 +312,7 @@ struct SessionListView: View {
                         ))
                         .disabled(app.folderRows.isEmpty)
                         Toggle("Archived Only", isOn: $app.showArchived)
+                        Toggle("Show Project Emoji", isOn: $app.showProjectEmoji)
                         Toggle("Open PRs in MergeRight", isOn: $app.mergeRightLinks)
                         // Off in a build with no notes baked in (`make ios`).
                         Button("What's New") { showingNotes = true }
@@ -527,8 +528,9 @@ private struct ProjectHeader: View {
                     .rotationEffect(.degrees(expanded ? 90 : 0))
                 // An empty emoji draws nothing rather than a computed glyph,
                 // same as the Mac app — `emoji(for:)` returns only what the
-                // core serves as `project_emoji`.
-                Text([app.emoji(for: name), name].compactMap { $0 }.joined(separator: " "))
+                // core serves as `project_emoji`, and `listEmoji` nothing at all
+                // while the ⋯ menu's Show Project Emoji is off.
+                Text([app.listEmoji(for: name), name].compactMap { $0 }.joined(separator: " "))
                 Spacer(minLength: 6)
             }
             .font(.footnote.weight(.semibold))

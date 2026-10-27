@@ -251,7 +251,9 @@ private struct ProjectRow: View {
     var body: some View {
         HStack(spacing: 8) {
             // The effective glyph, not the stored one, so this list shows what
-            // the sidebar shows for a project that never chose an emoji.
+            // the sidebar would draw for a project that never chose an emoji —
+            // whatever the "Show project emoji" switch says, since this is
+            // where the emoji is chosen.
             Text(app.emoji(for: name) ?? "").frame(width: 20)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
@@ -609,12 +611,25 @@ private struct AppearancePane: View {
                     Text("Right").tag(true)
                 }
                 .pickerStyle(.segmented)
+                Toggle("Show project emoji", isOn: Binding(
+                    get: { app.showProjectEmoji }, set: { app.showProjectEmoji = $0 }))
             } header: {
                 Text("Session list")
             } footer: {
                 Text("Font and size set the whole sidebar, headers included; Side puts it on "
                      + "either edge of the window. This app only — the TUI renders in whatever "
                      + "font your terminal is set to.")
+                .font(.caption)
+            }
+
+            Section {
+                Toggle("Show project emoji", isOn: Binding(
+                    get: { app.showMenuBarEmoji }, set: { app.showMenuBarEmoji = $0 }))
+            } header: {
+                Text("Menu bar")
+            } footer: {
+                Text("Separate from the session list's switch. With it off, each waiting "
+                     + "session is shown as project · name.")
                 .font(.caption)
             }
 
