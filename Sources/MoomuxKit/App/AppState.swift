@@ -175,12 +175,19 @@ public final class AppState {
     /// The sidebar's search field. Non-empty, it replaces `showArchived` as
     /// what the list shows — see `listedSessions`.
     public var searchQuery = ""
-    /// Bumped to put the keyboard in the search field. A token rather than a
-    /// Bool because the menu item has to work when focus is already there and
-    /// the user simply wants to start over; `@FocusState` lives in the view.
-    public private(set) var focusSearchToken = 0
+    /// Set to put the keyboard in the search field; the field clears it once
+    /// focused, so the menu item works again when focus is already there.
+    /// A flag the view consumes rather than a counter it watches: a hidden
+    /// right-hand list mounts in the same update that asks for focus, and a
+    /// view that mounts with the new value never sees it change.
+    /// `@FocusState` lives in the view.
+    public var searchFocusPending = false
 
-    public func focusSearch() { focusSearchToken += 1 }
+    public func focusSearch() {
+        // A hidden right-hand list is out of the view tree, search field and all.
+        if sidebarOnRight { sidebarShown = true }
+        searchFocusPending = true
+    }
     /// Replace the detail column with a read-only snapshot of every live
     /// session. Snapshots and not clients: an attached client sizes the shared
     /// tmux window for everyone, so a grid of six would letterbox six real
@@ -2049,6 +2056,41 @@ public final class AppState {
     }
 
     static let folderFirstKey = "folderFirst"
+
+    /// Draw the session list on the window's right edge. Mac only; the phone
+    /// has no side-by-side sidebar. `UserDefaults` for the same reason as
+    /// `diffTool`.
+    public var sidebarOnRight: Bool = UserDefaults.standard.bool(forKey: sidebarOnRightKey) {
+        didSet {
+            UserDefaults.standard.set(sidebarOnRight, forKey: Self.sidebarOnRightKey)
+            // Moving the list should show it, not carry over a hide from last time.
+            sidebarShown = true
+        }
+    }
+
+    static let sidebarOnRightKey = "sidebarOnRight"
+
+    /// Whether the right-hand list is open. The left one is AppKit's split
+    /// view and keeps its own state; this one is an inspector, which needs a
+    /// binding. Stored inverted so a missing key reads as shown.
+    public var sidebarShown: Bool = !UserDefaults.standard.bool(forKey: sidebarHiddenKey) {
+        didSet { UserDefaults.standard.set(!sidebarShown, forKey: Self.sidebarHiddenKey) }
+    }
+
+    static let sidebarHiddenKey = "sidebarHidden"
+
+    #if os(macOS)
+    /// ⌃⌘S and every toolbar button that shows or hides the list. On the left
+    /// it is AppKit's own split-view action; on the right the list is an
+    /// inspector, so it is our flag.
+    public func toggleSidebar() {
+        if sidebarOnRight {
+            sidebarShown.toggle()
+        } else {
+            NSApp.sendAction(#selector(NSSplitViewController.toggleSidebar(_:)), to: nil, from: nil)
+        }
+    }
+    #endif
 
     /// Point size for the whole sidebar — headers included, at the same size as
     /// the rows they head. `UserDefaults` for the same reason

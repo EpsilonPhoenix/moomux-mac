@@ -603,11 +603,18 @@ private struct AppearancePane: View {
                         in: 9...24, step: 1) {
                     Text("Text size: \(Int(app.listFontSize)) pt")
                 }
+                Picker("Side", selection: Binding(
+                    get: { app.sidebarOnRight }, set: { app.sidebarOnRight = $0 })) {
+                    Text("Left").tag(false)
+                    Text("Right").tag(true)
+                }
+                .pickerStyle(.segmented)
             } header: {
                 Text("Session list")
             } footer: {
-                Text("Sets the whole sidebar, headers included. This app only — the TUI "
-                     + "renders in whatever font your terminal is set to.")
+                Text("Font and size set the whole sidebar, headers included; Side puts it on "
+                     + "either edge of the window. This app only — the TUI renders in whatever "
+                     + "font your terminal is set to.")
                 .font(.caption)
             }
 

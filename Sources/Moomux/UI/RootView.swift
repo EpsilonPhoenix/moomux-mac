@@ -85,14 +85,12 @@ struct RootView: View {
         }
     }
 
-    var body: some View {
-        @Bindable var app = app
-        NavigationSplitView {
-            SessionList()
-                .navigationSplitViewColumnWidth(min: 240, ideal: 300)
-        } detail: {
-            // The grid replaces the detail column, not the window, so the
-            // sidebar and the toolbar keep working while it is up.
+    // The grid replaces the detail column, not the window, so the sidebar and
+    // the toolbar keep working while it is up.
+    // The update badge rides the detail, not the window, so a right-hand list
+    // does not end up underneath it.
+    private var detail: some View {
+        Group {
             if app.showGrid {
                 SessionGrid()
             } else if let session = app.session(id: app.selectedSessionID) {
@@ -102,6 +100,34 @@ struct RootView: View {
             }
         }
         .overlay(alignment: .bottomTrailing) { UpdateBadge() }
+    }
+
+    var body: some View {
+        @Bindable var app = app
+        Group {
+            if app.sidebarOnRight {
+                // NavigationSplitView has no trailing sidebar, so the right-hand
+                // list is an inspector column. Flipping the split view to
+                // right-to-left looked like less code, but NSToolbar still
+                // splits at the sidebar's width from the left, so every detail
+                // item overflowed into the sidebar's half — measured.
+                NavigationStack { detail }
+                    .inspector(isPresented: $app.sidebarShown) {
+                        // A split view's sidebar column gets this style for
+                        // free; the row bands and accent bars are tuned to it.
+                        SessionList()
+                            .listStyle(.sidebar)
+                            .inspectorColumnWidth(min: 240, ideal: 300, max: 520)
+                    }
+            } else {
+                NavigationSplitView {
+                    SessionList()
+                        .navigationSplitViewColumnWidth(min: 240, ideal: 300)
+                } detail: {
+                    detail
+                }
+            }
+        }
         // Blank rather than omitted: an unset title falls back to the
         // Window's own "moomux", which would duplicate RootTitle below.
         // `.toolbar(removing: .title)` looked like the fix for keeping
@@ -183,6 +209,18 @@ struct RootView: View {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .keyboardShortcut("r")
+            }
+            if app.sidebarOnRight {
+                // The split view's own sidebar button goes with the split view.
+                ToolbarItem {
+                    Button {
+                        app.toggleSidebar()
+                    } label: {
+                        // Not `sidebar.right`: Info already wears it.
+                        Label("Toggle Sidebar", systemImage: "list.bullet")
+                    }
+                    .help("Show or hide the session list (⌃⌘S)")
+                }
             }
         }
         .task {
@@ -716,7 +754,7 @@ private struct SessionList: View {
         // there and clickable either way — only ⌘F is gated, and
         // `SessionCommands` hides the menu item on the same check so there is
         // no command that does nothing.
-        .modifier(FocusSearchOnRequest(token: app.focusSearchToken))
+        .modifier(FocusSearchOnRequest())
         .overlay {
             if app.sessions.isEmpty {
                 EmptyState()
@@ -892,19 +930,25 @@ private struct NoSelectionHighlight: NSViewRepresentable {
     }
 }
 
-/// Puts the caret in the sidebar's search field whenever `token` changes.
+/// Puts the caret in the sidebar's search field whenever
+/// `searchFocusPending` is set, including when it was set by the update that
+/// mounted the list.
 ///
 /// A `ViewModifier` only so the macOS 15 availability check has somewhere to
 /// live that is not the middle of a modifier chain.
 private struct FocusSearchOnRequest: ViewModifier {
-    let token: Int
+    @Environment(AppState.self) private var app
     @FocusState private var focused: Bool
 
     func body(content: Content) -> some View {
         if #available(macOS 15, *) {
             content
                 .searchFocused($focused)
-                .onChange(of: token) { _, _ in focused = true }
+                .onChange(of: app.searchFocusPending, initial: true) { _, pending in
+                    guard pending else { return }
+                    focused = true
+                    app.searchFocusPending = false
+                }
         } else {
             content
         }

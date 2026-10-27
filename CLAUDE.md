@@ -877,6 +877,13 @@ Decisions, not oversights. Don't "fix" these without being asked.
   because a `Commands` body is not re-evaluated when an `@Observable` it reads changes, so a
   computed title is read once at launch and lies from then on. The group still has to be declared —
   with no `.sidebar` group the View menu holds only Enter Full Screen.
+  **With Settings → Appearance → Side set to Right, the list is not a sidebar at all**: it is an
+  `.inspector` beside a `NavigationStack`, because `NavigationSplitView` has no trailing sidebar.
+  Mirroring the split view right-to-left was tried and measured: NSToolbar still splits at the
+  sidebar's width from the left, so every detail toolbar item overflowed into `>>`. There
+  `AppState.toggleSidebar()` flips `sidebarShown` (persisted as `sidebarHidden`) instead of sending
+  `toggleSidebar:`, and the menu item and our own toolbar button both call it — so if ⌃⌘S
+  misbehaves on one side only, that function is where the two paths split.
 - **Search matches names and nothing else**, case-insensitively, over the *whole* store — archived
   sessions included, whatever the Archived toggle says. Both halves are `internal/tui/search.go`'s
   `matchSessions`: the session you cannot remember is disproportionately likely to be one you
