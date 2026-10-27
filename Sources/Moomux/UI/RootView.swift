@@ -1022,6 +1022,9 @@ private struct SessionRow: View {
             }
             .disabled(session.worktreePath.isEmpty)
             Divider()
+            Button(session.pinned ? "Unpin" : "Pin to Top") {
+                app.setPinned(session, !session.pinned)
+            }
             Button(session.archived ? "Unarchive" : "Archive") {
                 app.setArchived(session, !session.archived)
             }

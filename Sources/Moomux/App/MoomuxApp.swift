@@ -217,6 +217,10 @@ struct SessionCommands: Commands {
                 if let link = selected.flatMap(app.installedMergeRightLink) { NSWorkspace.shared.open(link) }
             }
             .disabled(selected.flatMap(app.installedMergeRightLink) == nil)
+            Button(selected?.pinned == true ? "Unpin" : "Pin to Top") {
+                if let s = selected { app.setPinned(s, !s.pinned) }
+            }
+            .disabled(selected == nil)
             Button(selected?.archived == true ? "Unarchive" : "Archive") {
                 if let s = selected { app.setArchived(s, !s.archived) }
             }

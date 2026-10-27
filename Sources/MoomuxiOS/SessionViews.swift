@@ -157,6 +157,10 @@ struct SessionListView: View {
                     app.setArchived(session, !session.archived)
                 }
                 .tint(.indigo)
+                Button(session.pinned ? "Unpin" : "Pin") {
+                    app.setPinned(session, !session.pinned)
+                }
+                .tint(.orange)
                 Button("Details") { path.append(.detail(session.id)) }
                     .tint(.gray)
             }
@@ -817,6 +821,11 @@ struct SessionActions: View {
                     Label("Open in MergeRight", systemImage: "arrow.up.forward.app")
                 }
             }
+        }
+        Button {
+            app.setPinned(session, !session.pinned)
+        } label: {
+            Label(session.pinned ? "Unpin" : "Pin to Top", systemImage: session.pinned ? "pin.slash" : "pin")
         }
         Button {
             app.setArchived(session, !session.archived)
