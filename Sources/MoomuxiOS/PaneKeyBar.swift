@@ -34,6 +34,21 @@ final class PaneKeyBar: UIView {
     var onNewSession: () -> Void = {}
     var onChanges: () -> Void = {}
 
+    /// Hiding the keyboard swaps it for an empty input view rather than
+    /// resigning, so the terminal keeps focus and this bar stays docked at the
+    /// bottom of the screen. The terminal's `inputView` reads this.
+    var keyboardHidden = false {
+        didSet {
+            guard keyboardHidden != oldValue else { return }
+            if keyboardHidden { closeArrowPad() }
+            hideButton?.configuration?.image = Self.keyboardImage(hidden: keyboardHidden)
+            hideButton?.accessibilityLabel = keyboardHidden ? "Show Keyboard" : "Hide Keyboard"
+            invalidateIntrinsicContentSize()
+            terminal?.reloadInputViews()
+        }
+    }
+
+    private var hideButton: UIButton?
     private var arrowPad: PaneArrowPad?
     private var pendingHide: DispatchWorkItem?
     private let height: CGFloat = 44
@@ -42,7 +57,8 @@ final class PaneKeyBar: UIView {
 
     init() {
         super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 52))
-        autoresizingMask = .flexibleWidth
+        // Flexible height so the accessory host follows `intrinsicContentSize`.
+        autoresizingMask = [.flexibleWidth, .flexibleHeight]
         backgroundColor = .clear
         // The pane is always dark whatever the system theme, so the bar is too.
         overrideUserInterfaceStyle = .dark
@@ -53,7 +69,15 @@ final class PaneKeyBar: UIView {
     required init?(coder _: NSCoder) { fatalError("not from a nib") }
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: height + 8)
+        // With no keyboard under it the bar sits at the screen's edge, so it
+        // clears the home indicator itself.
+        let inset = keyboardHidden ? terminal?.window?.safeAreaInsets.bottom ?? 0 : 0
+        return CGSize(width: UIView.noIntrinsicMetric, height: height + max(8, inset))
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        invalidateIntrinsicContentSize()
     }
 
     // MARK: Layout
@@ -204,11 +228,17 @@ final class PaneKeyBar: UIView {
         return button
     }
 
-    /// A tap hides the keyboard; a double tap sends Return instead, so a prompt
-    /// can be submitted from the bar. The hide waits out the double-tap window,
-    /// or the first tap would take the bar away before the second could land.
+    private static func keyboardImage(hidden: Bool) -> UIImage? {
+        UIImage(systemName: hidden ? "keyboard" : "keyboard.chevron.compact.down",
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 17))
+    }
+
+    /// A tap hides or shows the keyboard; a double tap sends Return instead, so
+    /// a prompt can be submitted from the bar. The toggle waits out the
+    /// double-tap window, or the keyboard would jump on the first tap of two.
     private func hideKey() -> UIButton {
         let button = icon("keyboard.chevron.compact.down", "Hide Keyboard") { _ in }
+        hideButton = button
         button.addTarget(self, action: #selector(hideTapped(_:event:)), for: .touchUpInside)
         button.addTarget(self, action: #selector(sendReturn), for: .touchDownRepeat)
         button.accessibilityCustomActions = [UIAccessibilityCustomAction(name: "Send Return") { [weak self] _ in
@@ -222,7 +252,7 @@ final class PaneKeyBar: UIView {
         // The second tap of a double lands here too, after `sendReturn`.
         // No touch at all is VoiceOver activating the button.
         guard (event?.allTouches?.first?.tapCount ?? 1) == 1 else { return }
-        let hide = DispatchWorkItem { [weak self] in _ = self?.terminal?.resignFirstResponder() }
+        let hide = DispatchWorkItem { [weak self] in self?.keyboardHidden.toggle() }
         pendingHide = hide
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: hide)
     }
