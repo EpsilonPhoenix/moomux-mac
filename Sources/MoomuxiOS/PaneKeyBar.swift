@@ -35,6 +35,7 @@ final class PaneKeyBar: UIView {
     var onChanges: () -> Void = {}
 
     private var arrowPad: PaneArrowPad?
+    private var pendingHide: DispatchWorkItem?
     private let height: CGFloat = 44
     private let pill = UIVisualEffectView(effect: PaneKeyBar.glass())
     private var modifiers: [(TerminalPublicStickyModifier, UIButton)] = []
@@ -107,7 +108,7 @@ final class PaneKeyBar: UIView {
 
         // Outside the scroller: hiding the keyboard must stay reachable
         // however far the row has been scrolled.
-        let hide = icon("keyboard.chevron.compact.down", "Hide Keyboard") { $0.resignFirstResponder() }
+        let hide = hideKey()
         let outer = UIStackView(arrangedSubviews: [scroll, hide])
         outer.translatesAutoresizingMaskIntoConstraints = false
         outer.alignment = .fill
@@ -195,6 +196,38 @@ final class PaneKeyBar: UIView {
         text(title, on: button)
         modifiers.append((which, button))
         return button
+    }
+
+    /// A tap hides the keyboard; a double tap sends Return instead, so a prompt
+    /// can be submitted from the bar. The hide waits out the double-tap window,
+    /// or the first tap would take the bar away before the second could land.
+    private func hideKey() -> UIButton {
+        let button = icon("keyboard.chevron.compact.down", "Hide Keyboard") { _ in }
+        button.addTarget(self, action: #selector(hideTapped(_:event:)), for: .touchUpInside)
+        button.addTarget(self, action: #selector(sendReturn), for: .touchDownRepeat)
+        button.accessibilityCustomActions = [UIAccessibilityCustomAction(name: "Send Return") { [weak self] _ in
+            self?.sendReturn()
+            return true
+        }]
+        return button
+    }
+
+    @objc private func hideTapped(_: UIButton, event: UIEvent?) {
+        // The second tap of a double lands here too, after `sendReturn`.
+        // No touch at all is VoiceOver activating the button.
+        guard (event?.allTouches?.first?.tapCount ?? 1) == 1 else { return }
+        let hide = DispatchWorkItem { [weak self] in _ = self?.terminal?.resignFirstResponder() }
+        pendingHide = hide
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: hide)
+    }
+
+    @objc private func sendReturn() {
+        pendingHide?.cancel()
+        pendingHide = nil
+        guard let view = terminal else { return }
+        // An armed Ctrl would otherwise turn the Return into Ctrl+Return.
+        view.resetStickyModifiers()
+        view.sendKey(.enter)
     }
 
     /// A menu rather than a button per snippet: the row is already as wide as
