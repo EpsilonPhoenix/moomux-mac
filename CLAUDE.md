@@ -536,7 +536,9 @@ core new enough to serve them** — there is no fallback to the old local paths.
   is what made shift+↑↓ swap the wrong pair. `Layout.reorder` is `sessionview.Reorder` ported —
   whole blocks move, a folder member moves among its siblings, and every id comes back including
   the hidden ones (`Store.Reorder` numbers what it is handed 1..N, so anything left out keeps a
-  stale `Order` that interleaves with the renumbered ones).
+  stale `Order` that interleaves with the renumbered ones). Pins are the one thing the core does not take verbatim: the order sent has them floated
+  to the top, so `ReorderSessions` orders the pinned and unpinned sessions each within the stored
+  slots they already held, and a move across that boundary changes nothing.
 - **`session.CreateRequest` has no json tags**, so it is the one thing this app *sends* that Go
   decodes off its own Go field names — `Project`, `BaseBranch`, `AutoSubmit`, `PR`. Everything else
   on the wire, `prstatus.Info` included, is snake_case. A key that stops matching is silent on both
