@@ -192,6 +192,14 @@ jobs:
                   args: ["-dr", "com.apple.quarantine", "{{appdir}}/Moomux.app"]
             end
 
+            # On `brew upgrade`, brew quits a running app named here and reopens
+            # the new build afterwards (after postflight, so the xattr is gone
+            # by then). The directive is read from the *installed* cask, so the
+            # first upgrade onto this stanza still leaves the old app running.
+            # brew skips the quit when it is itself running inside the app (a
+            # Moomux pane), since quitting would kill it.
+            uninstall quit: "app.moomux.Moomux"
+
             zap trash: [
               "~/Library/Application Support/Moomux",
             ]
