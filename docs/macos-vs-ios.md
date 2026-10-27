@@ -489,7 +489,8 @@ waits out the double-tap, which is also when `LinkTapView`'s link probe runs.
 enum and its look is four colours, so it cannot hold Moomux's buttons. The package supports a host
 drawing its own (`toggleStickyModifier`, `sendKey`, `paste(text:)`), so Ctrl and Alt still ride its
 sticky state. One glass pill: Ctrl, Esc, Tab; Arrow Pad, Paste, Snippets, New Session, View Changes;
-Alt; and Hide Keyboard pinned at the right. The arrows live on a floating pad (`PaneArrowPad`) that
+Alt; and Hide Keyboard pinned at the right, which sends Return on a double tap instead (so a single
+tap hides 0.3s late, waiting out the second). The arrows live on a floating pad (`PaneArrowPad`) that
 the bar's pad button opens over the pane — a subview of the terminal, because the accessory host
 clips and hit-tests to the bar — and its keys repeat while held. A handle on its top edge drags it out of the way of an input field;
 the position is kept in `UserDefaults`. New Session opens the same sheet without jumping to
